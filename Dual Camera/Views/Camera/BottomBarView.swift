@@ -61,7 +61,7 @@ struct BottomBarView: View {
             viewModel.openGallery()
         } label: {
             Group {
-                if let image = viewModel.lastCapturedImage {
+                if let image = viewModel.galleryThumbnailImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -132,8 +132,12 @@ struct BottomBarView: View {
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
+                .opacity(viewModel.isLayoutLocked ? 0.35 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(viewModel.isLayoutLocked)
+        .accessibilityLabel("Swap Cameras")
+        .accessibilityHint(viewModel.isLayoutLocked ? "Unavailable while recording" : "")
     }
 
     private var modeSelector: some View {

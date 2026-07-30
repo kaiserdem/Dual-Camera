@@ -131,7 +131,7 @@ nonisolated final class DualVideoEngine: NSObject, @unchecked Sendable {
         VideoDebugLog.log("primaryBack=\(value)")
     }
 
-    func startRecording(layout: CaptureLayoutContext) throws {
+    func startRecording(layout: CaptureLayoutContext, export: VideoExportConfiguration) throws {
         stateLock.lock()
         defer { stateLock.unlock() }
         guard recorder == nil else { throw EngineError.alreadyRecording }
@@ -143,14 +143,20 @@ nonisolated final class DualVideoEngine: NSObject, @unchecked Sendable {
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("mov")
-        let frameSize = CGSize(width: 1080, height: 1920)
-        VideoDebugLog.log("startRecording layout=\(layout.layout) url=\(url.lastPathComponent) size=1080x1920")
+            .appendingPathExtension(export.pathExtension)
+        let frameSize = layout.videoFrameSize(maxLongEdge: export.maxLongEdge)
+        VideoDebugLog.log(
+            "startRecording layout=\(layout.layout) ratio=\(layout.aspectRatio.rawValue) " +
+            "codec=\(export.codec.rawValue) container=\(export.container.rawValue) res=\(export.resolution.rawValue) " +
+            "viewfinder=\(Int(layout.viewfinderSize.width))x\(Int(layout.viewfinderSize.height)) " +
+            "output=\(Int(frameSize.width))x\(Int(frameSize.height)) url=\(url.lastPathComponent)"
+        )
 
         let newRecorder = DualVideoRecorder(
             outputURL: url,
             layoutContext: layout,
-            frameSize: frameSize
+            frameSize: frameSize,
+            exportConfiguration: export
         )
         do {
             try newRecorder.prepare()

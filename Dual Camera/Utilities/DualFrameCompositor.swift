@@ -43,16 +43,17 @@ nonisolated enum DualFrameCompositor {
         cg.interpolationQuality = .high
 
         let bounds = CGRect(origin: .zero, size: outputSize)
+        let fillCamera = !context.prefersAspectFit
 
         switch context.layout {
         case .pip:
-            drawAspectFill(primaryImage, in: bounds, cg: cg)
+            draw(primaryImage, in: bounds, cg: cg, fill: fillCamera)
             let pip = context.pipRect(in: outputSize)
             let flippedPip = flipRect(pip, in: outputSize)
             cg.saveGState()
             cg.addPath(pipPath(in: flippedPip, context: context))
             cg.clip()
-            drawAspectFill(secondaryImage, in: flippedPip, cg: cg)
+            draw(secondaryImage, in: flippedPip, cg: cg, fill: true)
             cg.restoreGState()
             if context.isBorderEnabled {
                 strokePiP(in: flippedPip, context: context, cg: cg)
@@ -62,8 +63,8 @@ nonisolated enum DualFrameCompositor {
             let ratio = context.verticalSplitRatio
             let left = CGRect(x: 0, y: 0, width: outputSize.width * ratio, height: outputSize.height)
             let right = CGRect(x: left.maxX, y: 0, width: outputSize.width - left.width, height: outputSize.height)
-            drawAspectFill(primaryImage, in: left, cg: cg)
-            drawAspectFill(secondaryImage, in: right, cg: cg)
+            draw(primaryImage, in: left, cg: cg, fill: fillCamera)
+            draw(secondaryImage, in: right, cg: cg, fill: fillCamera)
             strokeSeparator(
                 from: CGPoint(x: left.maxX, y: 0),
                 to: CGPoint(x: left.maxX, y: outputSize.height),
@@ -78,8 +79,8 @@ nonisolated enum DualFrameCompositor {
             let topHeight = outputSize.height * ratio
             let top = CGRect(x: 0, y: outputSize.height - topHeight, width: outputSize.width, height: topHeight)
             let bottom = CGRect(x: 0, y: 0, width: outputSize.width, height: outputSize.height - topHeight)
-            drawAspectFill(primaryImage, in: top, cg: cg)
-            drawAspectFill(secondaryImage, in: bottom, cg: cg)
+            draw(primaryImage, in: top, cg: cg, fill: fillCamera)
+            draw(secondaryImage, in: bottom, cg: cg, fill: fillCamera)
             strokeSeparator(
                 from: CGPoint(x: 0, y: bottom.maxY),
                 to: CGPoint(x: outputSize.width, y: bottom.maxY),
@@ -95,9 +96,21 @@ nonisolated enum DualFrameCompositor {
     // MARK: - Drawing
 
     private static func drawAspectFill(_ image: CIImage, in rect: CGRect, cg: CGContext) {
+        draw(image, in: rect, cg: cg, fill: true)
+    }
+
+    private static func drawAspectFit(_ image: CIImage, in rect: CGRect, cg: CGContext) {
+        draw(image, in: rect, cg: cg, fill: false)
+    }
+
+    private static func draw(_ image: CIImage, in rect: CGRect, cg: CGContext, fill: Bool) {
         guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return }
         let imageSize = image.extent.size
-        let scale = max(rect.width / imageSize.width, rect.height / imageSize.height)
+        guard imageSize.width > 0, imageSize.height > 0, rect.width > 0, rect.height > 0 else { return }
+
+        let scale = fill
+            ? max(rect.width / imageSize.width, rect.height / imageSize.height)
+            : min(rect.width / imageSize.width, rect.height / imageSize.height)
         let drawSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         let drawRect = CGRect(
             x: rect.midX - drawSize.width / 2,

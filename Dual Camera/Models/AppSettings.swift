@@ -22,6 +22,9 @@ final class AppSettings {
         static let selectedRatio = "settings.selectedRatio"
         static let verticalSplitRatio = "settings.verticalSplitRatio"
         static let horizontalSplitRatio = "settings.horizontalSplitRatio"
+        static let videoCodec = "settings.videoCodec"
+        static let videoContainer = "settings.videoContainer"
+        static let videoResolution = "settings.videoResolution"
     }
 
     var selectedLayout: CameraLayout = .pip {
@@ -77,6 +80,26 @@ final class AppSettings {
         didSet { persist(Double(horizontalSplitRatio), key: Keys.horizontalSplitRatio) }
     }
 
+    var videoCodec: VideoCodecOption = .hevc {
+        didSet { persist(videoCodec.rawValue, key: Keys.videoCodec) }
+    }
+
+    var videoContainer: VideoContainerOption = .mov {
+        didSet { persist(videoContainer.rawValue, key: Keys.videoContainer) }
+    }
+
+    var videoResolution: VideoResolutionOption = .p1080 {
+        didSet { persist(videoResolution.rawValue, key: Keys.videoResolution) }
+    }
+
+    var videoExportConfiguration: VideoExportConfiguration {
+        VideoExportConfiguration(
+            codec: videoCodec,
+            container: videoContainer,
+            resolution: videoResolution
+        )
+    }
+
     var borderColor: Color {
         get { Color(hexString: borderColorHex) ?? BorderStyle.white.color }
         set { borderColorHex = newValue.hexString }
@@ -116,6 +139,9 @@ final class AppSettings {
         pipScale = Self.clampedPipScale(
             defaults.object(forKey: Keys.pipScale) as? Double ?? 0.28
         )
+        videoCodec = VideoCodecOption(rawValue: defaults.string(forKey: Keys.videoCodec) ?? "") ?? .hevc
+        videoContainer = VideoContainerOption(rawValue: defaults.string(forKey: Keys.videoContainer) ?? "") ?? .mov
+        videoResolution = VideoResolutionOption(rawValue: defaults.string(forKey: Keys.videoResolution) ?? "") ?? .p1080
     }
 
     func applyBorderPreset(_ style: BorderStyle) {

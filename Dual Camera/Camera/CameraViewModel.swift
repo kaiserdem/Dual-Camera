@@ -30,14 +30,25 @@ final class CameraViewModel {
             cameraManager.setTorchEnabled(isFlashEnabled && captureMode == .video)
         }
     }
-    var pipPosition: CGPoint?
+    /// Frozen while recording so export matches the layout captured at start.
+    private var storedPipPosition: CGPoint?
+    var pipPosition: CGPoint? {
+        get { storedPipPosition }
+        set {
+            guard !isRecording else { return }
+            storedPipPosition = newValue
+        }
+    }
     var viewfinderSize: CGSize = .zero
     var showSettings = false
+
+    /// Layout / PiP / split / ratio edits are locked for the duration of a take.
+    var isLayoutLocked: Bool { isRecording }
 
     var selectedRatio: AspectRatio {
         get { settings.selectedRatio }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.selectedRatio = newValue
         }
     }
@@ -45,7 +56,7 @@ final class CameraViewModel {
     var selectedLayout: CameraLayout {
         get { settings.selectedLayout }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.selectedLayout = newValue
         }
     }
@@ -53,7 +64,7 @@ final class CameraViewModel {
     var pipShape: PiPShape {
         get { settings.pipShape }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.pipShape = newValue
         }
     }
@@ -61,7 +72,7 @@ final class CameraViewModel {
     var isPiPRounded: Bool {
         get { settings.isPiPRounded }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.isPiPRounded = newValue
         }
     }
@@ -69,7 +80,7 @@ final class CameraViewModel {
     var pipScale: CGFloat {
         get { settings.pipScale }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.pipScale = AppSettings.clampedPipScale(Double(newValue))
         }
     }
@@ -77,7 +88,7 @@ final class CameraViewModel {
     var isBorderEnabled: Bool {
         get { settings.isBorderEnabled }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.isBorderEnabled = newValue
         }
     }
@@ -85,7 +96,7 @@ final class CameraViewModel {
     var borderWidth: CGFloat {
         get { settings.borderWidth }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.borderWidth = min(max(newValue, 1), 8)
         }
     }
@@ -93,7 +104,7 @@ final class CameraViewModel {
     var borderStyle: BorderStyle {
         get { settings.borderStyle }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.borderStyle = newValue
         }
     }
@@ -101,7 +112,7 @@ final class CameraViewModel {
     var borderColor: Color {
         get { settings.borderColor }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.borderColor = newValue
         }
     }
@@ -109,7 +120,7 @@ final class CameraViewModel {
     var borderLineStyle: BorderLineStyle {
         get { settings.borderLineStyle }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.borderLineStyle = newValue
         }
     }
@@ -117,7 +128,7 @@ final class CameraViewModel {
     var verticalSplitRatio: CGFloat {
         get { settings.verticalSplitRatio }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.verticalSplitRatio = AppSettings.clampedSplitRatio(Double(newValue))
         }
     }
@@ -125,7 +136,7 @@ final class CameraViewModel {
     var horizontalSplitRatio: CGFloat {
         get { settings.horizontalSplitRatio }
         set {
-            guard !isRecording else { return }
+            guard !isLayoutLocked else { return }
             settings.horizontalSplitRatio = AppSettings.clampedSplitRatio(Double(newValue))
         }
     }
@@ -137,6 +148,8 @@ final class CameraViewModel {
     var recordingElapsed: TimeInterval = 0
     var lastCapturedImage: UIImage? { cameraManager.lastCapturedImage }
     var photoCaptureCount: Int { cameraManager.photoCaptureCount }
+    /// Temporary gallery button preview; cleared a few seconds after capture.
+    var galleryThumbnailImage: UIImage?
     /// 0...1 white flash over the viewfinder after shutter.
     var shutterFlashOpacity: Double = 0
     /// Gallery thumbnail pulse scale.
@@ -160,6 +173,7 @@ final class CameraViewModel {
     private var recordingTimer: Timer?
     private var recordingAccumulated: TimeInterval = 0
     private var recordingSegmentStartedAt: Date?
+    private var galleryThumbnailResetTask: Task<Void, Never>?
 
     func onAppear() {
         cameraManager.prepare()
@@ -167,11 +181,16 @@ final class CameraViewModel {
 
     func onDisappear() {
         stopRecordingTimer()
+        galleryThumbnailResetTask?.cancel()
+        galleryThumbnailResetTask = nil
         cameraManager.stopSession()
         motionManager.isActive = false
     }
 
     func toggleOverlay(_ overlay: ActiveOverlay) {
+        if isLayoutLocked, overlay == .layout || overlay == .ratio {
+            return
+        }
         activeOverlay = activeOverlay == overlay ? .none : overlay
     }
 
@@ -180,6 +199,7 @@ final class CameraViewModel {
     }
 
     func swapCameras() {
+        guard !isLayoutLocked else { return }
         cameraManager.swapCameras()
     }
 
@@ -196,10 +216,10 @@ final class CameraViewModel {
             cameraManager.takePhoto(layout: layout)
         case .video:
             if isRecording {
-                cameraManager.toggleRecording(layout: layout)
+                cameraManager.toggleRecording(layout: layout, export: settings.videoExportConfiguration)
             } else {
                 dismissOverlay()
-                cameraManager.toggleRecording(layout: layout)
+                cameraManager.toggleRecording(layout: layout, export: settings.videoExportConfiguration)
             }
         }
     }
@@ -212,6 +232,9 @@ final class CameraViewModel {
     }
 
     func triggerGalleryCapturePulse() {
+        galleryThumbnailResetTask?.cancel()
+        galleryThumbnailImage = lastCapturedImage
+
         var snap = Transaction()
         snap.disablesAnimations = true
         withTransaction(snap) {
@@ -219,6 +242,14 @@ final class CameraViewModel {
         }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
             galleryPulseScale = 1
+        }
+
+        galleryThumbnailResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                galleryThumbnailImage = nil
+            }
         }
     }
 
@@ -326,6 +357,7 @@ final class CameraViewModel {
     }
 
     func applyBorderPreset(_ style: BorderStyle) {
+        guard !isLayoutLocked else { return }
         settings.applyBorderPreset(style)
     }
 }

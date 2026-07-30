@@ -16,6 +16,7 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
     private var isRecording = false
     private var didWriteVideoFrame = false
     private var layoutContext: CaptureLayoutContext
+    private var exportConfiguration: VideoExportConfiguration
     private var outputURL: URL
     private var latestPrimary: CVPixelBuffer?
     private var latestSecondary: CVPixelBuffer?
@@ -40,30 +41,31 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
         return isPaused
     }
 
-    init(outputURL: URL, layoutContext: CaptureLayoutContext, frameSize: CGSize) {
+    init(
+        outputURL: URL,
+        layoutContext: CaptureLayoutContext,
+        frameSize: CGSize,
+        exportConfiguration: VideoExportConfiguration
+    ) {
         self.outputURL = outputURL
         self.layoutContext = layoutContext
         self.frameSize = frameSize
+        self.exportConfiguration = exportConfiguration
         super.init()
     }
 
     func prepare() throws {
         try? FileManager.default.removeItem(at: outputURL)
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: exportConfiguration.fileType)
 
         let width = Int(frameSize.width)
         let height = Int(frameSize.height)
-        let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: 12_000_000,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoExpectedSourceFrameRateKey: 30,
-                AVVideoMaxKeyFrameIntervalKey: 30
-            ]
-        ]
+        let videoSettings = Self.makeVideoSettings(
+            width: width,
+            height: height,
+            codec: exportConfiguration.preferredAVCodec,
+            writer: writer
+        )
 
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = true
@@ -100,7 +102,83 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
         self.assetWriter = writer
         self.videoInput = videoInput
         self.pixelBufferAdaptor = adaptor
-        VideoDebugLog.log("prepare OK \(width)x\(height) → \(outputURL.lastPathComponent)")
+        let codecName: String = {
+            if let type = videoSettings[AVVideoCodecKey] as? AVVideoCodecType {
+                return type.rawValue
+            }
+            if let raw = videoSettings[AVVideoCodecKey] as? String {
+                return raw
+            }
+            return "?"
+        }()
+        VideoDebugLog.log(
+            "prepare OK \(width)x\(height) codec=\(codecName) container=\(exportConfiguration.container.rawValue) → \(outputURL.lastPathComponent)"
+        )
+    }
+
+    private static func makeVideoSettings(
+        width: Int,
+        height: Int,
+        codec: AVVideoCodecType,
+        writer: AVAssetWriter
+    ) -> [String: Any] {
+        let candidates: [AVVideoCodecType]
+        if codec == .hevc {
+            candidates = [.hevc, .h264]
+        } else {
+            candidates = [.h264]
+        }
+
+        for candidate in candidates {
+            let settings = compressionSettings(width: width, height: height, codec: candidate)
+            if writer.canApply(outputSettings: settings, forMediaType: .video) {
+                if candidate != codec {
+                    VideoDebugLog.log("WARNING codec \(codec.rawValue) unavailable, falling back to \(candidate.rawValue)")
+                }
+                return settings
+            }
+        }
+
+        // Last resort — H.264 without profile key.
+        return [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate(forPixelCount: width * height, codec: .h264),
+                AVVideoExpectedSourceFrameRateKey: 30,
+                AVVideoMaxKeyFrameIntervalKey: 30
+            ]
+        ]
+    }
+
+    private static func compressionSettings(
+        width: Int,
+        height: Int,
+        codec: AVVideoCodecType
+    ) -> [String: Any] {
+        var compression: [String: Any] = [
+            AVVideoAverageBitRateKey: bitrate(forPixelCount: width * height, codec: codec),
+            AVVideoExpectedSourceFrameRateKey: 30,
+            AVVideoMaxKeyFrameIntervalKey: 30
+        ]
+        if codec == .h264 {
+            compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        }
+
+        return [
+            AVVideoCodecKey: codec,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: compression
+        ]
+    }
+
+    /// ~bits/pixel/sec at 30fps; HEVC needs less than H.264 for similar quality.
+    private static func bitrate(forPixelCount pixelCount: Int, codec: AVVideoCodecType) -> Int {
+        let bitsPerPixel = codec == .hevc ? 2.5 : 4.0
+        let raw = Int(Double(max(pixelCount, 1)) * bitsPerPixel)
+        return min(max(raw, 4_000_000), 16_000_000)
     }
 
     func start() {

@@ -3,6 +3,7 @@
 //  Dual Camera
 //
 
+import AVFoundation
 import SwiftUI
 
 struct ViewfinderView: View {
@@ -63,13 +64,13 @@ struct ViewfinderView: View {
                         .frame(width: size.width * ratio)
                         .clipped()
                         .contentShape(Rectangle())
-                        .onTapGesture { viewModel.swapCameras() }
+                        .onTapGesture(perform: swapIfUnlocked)
 
                     secondaryPreview
                         .frame(width: size.width * (1 - ratio))
                         .clipped()
                         .contentShape(Rectangle())
-                        .onTapGesture { viewModel.swapCameras() }
+                        .onTapGesture(perform: swapIfUnlocked)
                 }
             } else {
                 VStack(spacing: 0) {
@@ -77,13 +78,13 @@ struct ViewfinderView: View {
                         .frame(height: size.height * ratio)
                         .clipped()
                         .contentShape(Rectangle())
-                        .onTapGesture { viewModel.swapCameras() }
+                        .onTapGesture(perform: swapIfUnlocked)
 
                     secondaryPreview
                         .frame(height: size.height * (1 - ratio))
                         .clipped()
                         .contentShape(Rectangle())
-                        .onTapGesture { viewModel.swapCameras() }
+                        .onTapGesture(perform: swapIfUnlocked)
                 }
             }
 
@@ -103,14 +104,16 @@ struct ViewfinderView: View {
                 separatorLine(axis: axis, size: size, lineWidth: lineWidth, color: separatorColor, dash: dash)
             }
 
-            // Center grip — always present so the split stays resizable.
-            Capsule()
-                .fill(viewModel.isBorderEnabled ? separatorColor : Color.white.opacity(0.9))
-                .frame(
-                    width: axis == .horizontal ? max(lineWidth + 2, 5) : 56,
-                    height: axis == .horizontal ? 56 : max(lineWidth + 2, 5)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            // Center grip — hidden while layout is frozen during recording.
+            if !viewModel.isLayoutLocked {
+                Capsule()
+                    .fill(viewModel.isBorderEnabled ? separatorColor : Color.white.opacity(0.9))
+                    .frame(
+                        width: axis == .horizontal ? max(lineWidth + 2, 5) : 56,
+                        height: axis == .horizontal ? 56 : max(lineWidth + 2, 5)
+                    )
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            }
         }
         .frame(
             width: axis == .horizontal ? hitSize : size.width,
@@ -121,9 +124,15 @@ struct ViewfinderView: View {
             x: axis == .horizontal ? size.width * ratio : size.width / 2,
             y: axis == .horizontal ? size.height / 2 : size.height * ratio
         )
-        .gesture(viewModel.isRecording ? nil : splitDragGesture(axis: axis, size: size))
-        .allowsHitTesting(!viewModel.isRecording)
+        .gesture(viewModel.isLayoutLocked ? nil : splitDragGesture(axis: axis, size: size))
+        .allowsHitTesting(!viewModel.isLayoutLocked)
         .accessibilityLabel("Resize split")
+        .accessibilityHint(viewModel.isLayoutLocked ? "Unavailable while recording" : "")
+    }
+
+    private func swapIfUnlocked() {
+        guard !viewModel.isLayoutLocked else { return }
+        viewModel.swapCameras()
     }
 
     @ViewBuilder
@@ -157,7 +166,7 @@ struct ViewfinderView: View {
     private func splitDragGesture(axis: Axis, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                guard !viewModel.isRecording else { return }
+                guard !viewModel.isLayoutLocked else { return }
                 let currentRatio = axis == .horizontal
                     ? viewModel.verticalSplitRatio
                     : viewModel.horizontalSplitRatio
@@ -177,10 +186,14 @@ struct ViewfinderView: View {
             }
     }
 
+    private var previewGravity: AVLayerVideoGravity {
+        viewModel.selectedRatio == .full ? .resizeAspect : .resizeAspectFill
+    }
+
     @ViewBuilder
     private var primaryPreview: some View {
         if viewModel.isSessionRunning, let port = viewModel.primaryPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port)
+            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
                 .id("primary-\(ObjectIdentifier(port))")
         } else {
             placeholder(colors: [.blue.opacity(0.75), .purple.opacity(0.65)], symbol: "camera.fill")
@@ -190,7 +203,7 @@ struct ViewfinderView: View {
     @ViewBuilder
     private var secondaryPreview: some View {
         if viewModel.isSessionRunning, let port = viewModel.secondaryPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port)
+            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
                 .id("secondary-\(ObjectIdentifier(port))")
         } else {
             placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.square")

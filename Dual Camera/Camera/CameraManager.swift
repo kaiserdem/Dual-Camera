@@ -128,6 +128,7 @@ final class CameraManager: NSObject {
     }
 
     func swapCameras() {
+        guard !isRecording else { return }
         isPrimaryBack.toggle()
         videoEngine.updatePrimaryBack(isPrimaryBack)
     }
@@ -209,15 +210,15 @@ final class CameraManager: NSObject {
         }
     }
 
-    func toggleRecording(layout: CaptureLayoutContext) {
+    func toggleRecording(layout: CaptureLayoutContext, export: VideoExportConfiguration) {
         if isRecording {
             stopRecording()
         } else {
-            startRecording(layout: layout)
+            startRecording(layout: layout, export: export)
         }
     }
 
-    func startRecording(layout: CaptureLayoutContext) {
+    func startRecording(layout: CaptureLayoutContext, export: VideoExportConfiguration) {
         VideoDebugLog.log("CameraManager.startRecording isConfigured=\(videoEngine.isConfigured)")
         guard !isRecording else {
             VideoDebugLog.log("CameraManager.startRecording ignored — already recording")
@@ -235,7 +236,7 @@ final class CameraManager: NSObject {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             do {
-                try self.videoEngine.startRecording(layout: layout)
+                try self.videoEngine.startRecording(layout: layout, export: export)
                 VideoDebugLog.log("CameraManager.startRecording engine started")
             } catch {
                 VideoDebugLog.log("ERROR CameraManager.startRecording \(error)")

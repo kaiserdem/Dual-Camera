@@ -85,11 +85,19 @@ enum PiPShape: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Portrait aspect for rectangle; square/circle stay 1:1.
+    /// Width relative to the base PiP scale (square/circle = 1).
+    var widthMultiplier: CGFloat {
+        switch self {
+        case .square, .circle: 1
+        case .rectangle: 0.78
+        }
+    }
+
+    /// Height / width of the PiP frame. Rectangle is a taller portrait.
     var heightMultiplier: CGFloat {
         switch self {
         case .square, .circle: 1
-        case .rectangle: 1.25
+        case .rectangle: 1.55
         }
     }
 
@@ -204,6 +212,65 @@ enum FlashModeOption: String, CaseIterable, Identifiable {
         case .off: "bolt.slash.fill"
         case .on: "bolt.fill"
         case .auto: "bolt.badge.automatic.fill"
+        }
+    }
+}
+
+enum VideoCodecOption: String, CaseIterable, Identifiable, Sendable {
+    case hevc
+    case h264
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .hevc: "High Efficiency"
+        case .h264: "Most Compatible"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .hevc: "HEVC"
+        case .h264: "H.264"
+        }
+    }
+}
+
+enum VideoContainerOption: String, CaseIterable, Identifiable, Sendable {
+    case mov
+    case mp4
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .mov: "MOV"
+        case .mp4: "MP4"
+        }
+    }
+
+    nonisolated var pathExtension: String { rawValue }
+}
+
+enum VideoResolutionOption: String, CaseIterable, Identifiable, Sendable {
+    case p720
+    case p1080
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .p720: "720p"
+        case .p1080: "1080p"
+        }
+    }
+
+    /// Long edge passed to `CaptureLayoutContext.videoFrameSize`.
+    nonisolated var maxLongEdge: CGFloat {
+        switch self {
+        case .p720: 1280
+        case .p1080: 1920
         }
     }
 }

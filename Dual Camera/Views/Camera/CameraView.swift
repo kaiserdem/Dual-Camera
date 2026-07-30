@@ -39,7 +39,7 @@ struct CameraView: View {
             }
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $viewModel.showSettings) {
-                SettingsView()
+                SettingsView(settings: viewModel.settings)
             }
             .onAppear {
                 viewModel.onAppear()

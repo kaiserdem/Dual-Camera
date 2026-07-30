@@ -9,15 +9,17 @@ import SwiftUI
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureMultiCamSession
     let inputPort: AVCaptureInput.Port?
+    var videoGravity: AVLayerVideoGravity = .resizeAspectFill
 
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
         view.previewLayer.setSessionWithNoConnection(session)
-        view.previewLayer.videoGravity = .resizeAspectFill
+        view.previewLayer.videoGravity = videoGravity
         return view
     }
 
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
+        uiView.previewLayer.videoGravity = videoGravity
         uiView.previewLayer.setSessionWithNoConnection(session)
         uiView.attach(port: inputPort)
     }

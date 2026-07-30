@@ -30,7 +30,7 @@ enum DualImageCompositor {
 
             switch context.layout {
             case .pip:
-                drawAspectFill(primaryImage, in: bounds)
+                draw(primaryImage, in: bounds, fill: !context.prefersAspectFit)
                 let pipRect = context.pipRect(in: outputSize)
                 drawPiP(secondaryImage, in: pipRect, context: context, cg: cg)
 
@@ -43,8 +43,8 @@ enum DualImageCompositor {
                     width: outputSize.width - left.width,
                     height: outputSize.height
                 )
-                drawAspectFill(primaryImage, in: left)
-                drawAspectFill(secondaryImage, in: right)
+                draw(primaryImage, in: left, fill: !context.prefersAspectFit)
+                draw(secondaryImage, in: right, fill: !context.prefersAspectFit)
                 drawSeparator(
                     from: CGPoint(x: left.maxX, y: 0),
                     to: CGPoint(x: left.maxX, y: outputSize.height),
@@ -62,8 +62,8 @@ enum DualImageCompositor {
                     width: outputSize.width,
                     height: outputSize.height - top.height
                 )
-                drawAspectFill(primaryImage, in: top)
-                drawAspectFill(secondaryImage, in: bottom)
+                draw(primaryImage, in: top, fill: !context.prefersAspectFit)
+                draw(secondaryImage, in: bottom, fill: !context.prefersAspectFit)
                 drawSeparator(
                     from: CGPoint(x: 0, y: top.maxY),
                     to: CGPoint(x: outputSize.width, y: top.maxY),
@@ -103,12 +103,14 @@ enum DualImageCompositor {
         }
     }
 
-    /// Aspect-fill without stretching: scale uniformly, crop overflow.
-    private static func drawAspectFill(_ image: UIImage, in rect: CGRect) {
+    /// Aspect-fill/fit without stretching.
+    private static func draw(_ image: UIImage, in rect: CGRect, fill: Bool) {
         let imageSize = image.size
         guard imageSize.width > 0, imageSize.height > 0, rect.width > 0, rect.height > 0 else { return }
 
-        let scale = max(rect.width / imageSize.width, rect.height / imageSize.height)
+        let scale = fill
+            ? max(rect.width / imageSize.width, rect.height / imageSize.height)
+            : min(rect.width / imageSize.width, rect.height / imageSize.height)
         let drawSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         let drawRect = CGRect(
             x: rect.midX - drawSize.width / 2,
@@ -126,6 +128,10 @@ enum DualImageCompositor {
         cg.clip(to: rect)
         image.draw(in: drawRect)
         cg.restoreGState()
+    }
+
+    private static func drawAspectFill(_ image: UIImage, in rect: CGRect) {
+        draw(image, in: rect, fill: true)
     }
 
     private static func drawPiP(

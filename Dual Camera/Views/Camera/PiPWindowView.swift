@@ -13,7 +13,7 @@ struct PiPWindowView: View {
     @State private var pinchStartScale: CGFloat?
 
     private var pipSize: CGSize {
-        let width = containerSize.width * viewModel.pipScale
+        let width = containerSize.width * viewModel.pipScale * viewModel.pipShape.widthMultiplier
         return CGSize(width: width, height: width * viewModel.pipShape.heightMultiplier)
     }
 
@@ -36,9 +36,10 @@ struct PiPWindowView: View {
         styledPip
             .frame(width: pipSize.width, height: pipSize.height)
             .onTapGesture {
+                guard !viewModel.isLayoutLocked else { return }
                 viewModel.swapCameras()
             }
-            .gesture(viewModel.isRecording ? nil : interactionGestures)
+            .gesture(viewModel.isLayoutLocked ? nil : interactionGestures)
             .position(position)
             .onChange(of: containerSize) { _, newSize in
                 clampStoredPosition(in: newSize)
@@ -119,7 +120,7 @@ struct PiPWindowView: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                guard !viewModel.isRecording else { return }
+                guard !viewModel.isLayoutLocked else { return }
                 // Prefer pinch when two-finger interaction is active.
                 guard pinchStartScale == nil else { return }
                 let origin = dragOrigin ?? position
@@ -140,7 +141,7 @@ struct PiPWindowView: View {
     private var magnificationGesture: some Gesture {
         MagnificationGesture()
             .onChanged { value in
-                guard !viewModel.isRecording else { return }
+                guard !viewModel.isLayoutLocked else { return }
                 if pinchStartScale == nil {
                     pinchStartScale = viewModel.pipScale
                     dragOrigin = nil
