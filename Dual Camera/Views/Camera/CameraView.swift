@@ -7,31 +7,35 @@ import SwiftUI
 
 struct CameraView: View {
     @State private var viewModel = CameraViewModel()
+    @State private var overlayOffset: CGSize = .zero
+    @State private var overlayDragStart: CGSize?
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
+            GeometryReader { proxy in
+                ZStack {
+                    Color.black.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    TopBarView(viewModel: viewModel)
+                    VStack(spacing: 0) {
+                        TopBarView(viewModel: viewModel)
 
-                    viewfinderSection
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        viewfinderSection
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    BottomBarView(viewModel: viewModel)
+                        BottomBarView(viewModel: viewModel)
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+
+                    if viewModel.activeOverlay != .none {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                viewModel.dismissOverlay()
+                            }
+                    }
+
+                    overlayPanel(in: proxy.size)
                 }
-                .ignoresSafeArea(edges: .bottom)
-
-                if viewModel.activeOverlay != .none {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            viewModel.dismissOverlay()
-                        }
-                }
-
-                overlayPanel
             }
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $viewModel.showSettings) {
@@ -42,6 +46,16 @@ struct CameraView: View {
             }
             .onDisappear {
                 viewModel.onDisappear()
+            }
+            .onChange(of: viewModel.isRecording) { _, isRecording in
+                viewModel.syncRecordingTimer(isRecording: isRecording)
+                if isRecording {
+                    viewModel.dismissOverlay()
+                }
+            }
+            .onChange(of: viewModel.photoCaptureCount) { _, count in
+                guard count > 0 else { return }
+                viewModel.triggerGalleryCapturePulse()
             }
             .alert(
                 "Camera Unavailable",
@@ -70,6 +84,11 @@ struct CameraView: View {
 
             ViewfinderView(viewModel: viewModel)
                 .frame(width: framedSize.width, height: framedSize.height)
+                .overlay {
+                    Color.white
+                        .opacity(viewModel.shutterFlashOpacity)
+                        .allowsHitTesting(false)
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 0))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
@@ -77,7 +96,7 @@ struct CameraView: View {
     }
 
     @ViewBuilder
-    private var overlayPanel: some View {
+    private func overlayPanel(in containerSize: CGSize) -> some View {
         VStack {
             Spacer().frame(height: 64)
 
@@ -94,11 +113,47 @@ struct CameraView: View {
                 }
             }
             .padding(.horizontal, 16)
+            .offset(overlayOffset)
+            .simultaneousGesture(overlayDragGesture(in: containerSize))
             .transition(.move(edge: .top).combined(with: .opacity))
 
             Spacer()
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.activeOverlay)
+        .onChange(of: viewModel.activeOverlay) { _, _ in
+            overlayOffset = .zero
+            overlayDragStart = nil
+        }
+    }
+
+    private func overlayDragGesture(in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                let start = overlayDragStart ?? overlayOffset
+                if overlayDragStart == nil {
+                    overlayDragStart = start
+                }
+                overlayOffset = clampOverlayOffset(
+                    CGSize(
+                        width: start.width + value.translation.width,
+                        height: start.height + value.translation.height
+                    ),
+                    in: containerSize
+                )
+            }
+            .onEnded { _ in
+                overlayDragStart = nil
+            }
+    }
+
+    private func clampOverlayOffset(_ offset: CGSize, in containerSize: CGSize) -> CGSize {
+        let maxX = max(containerSize.width * 0.35, 80)
+        let minY: CGFloat = -40
+        let maxY = max(containerSize.height * 0.55, 120)
+        return CGSize(
+            width: min(max(offset.width, -maxX), maxX),
+            height: min(max(offset.height, minY), maxY)
+        )
     }
 
     private func aspectFittedSize(in container: CGSize, ratio: CGFloat?) -> CGSize {

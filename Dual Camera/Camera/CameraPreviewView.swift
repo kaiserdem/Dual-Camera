@@ -22,6 +22,10 @@ struct CameraPreviewView: UIViewRepresentable {
         uiView.attach(port: inputPort)
     }
 
+    static func dismantleUIView(_ uiView: PreviewUIView, coordinator: ()) {
+        uiView.detach()
+    }
+
     final class PreviewUIView: UIView {
         override class var layerClass: AnyClass {
             AVCaptureVideoPreviewLayer.self
@@ -34,24 +38,68 @@ struct CameraPreviewView: UIViewRepresentable {
         private var attachedPort: AVCaptureInput.Port?
 
         func attach(port: AVCaptureInput.Port?) {
-            guard let port else { return }
-            guard attachedPort !== port else { return }
+            guard let port else {
+                detach()
+                return
+            }
 
-            if let existing = previewLayer.connection,
-               let session = previewLayer.session {
-                session.removeConnection(existing)
+            if attachedPort === port, previewLayer.connection != nil {
+                return
             }
 
             guard let session = previewLayer.session as? AVCaptureMultiCamSession else { return }
+
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
+
+            detachCurrentConnection(in: session)
+            freePreviewConnections(for: port, in: session)
+
             let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: previewLayer)
-            if session.canAddConnection(connection) {
-                session.addConnection(connection)
-                if connection.isVideoMirroringSupported {
-                    connection.automaticallyAdjustsVideoMirroring = false
-                    connection.isVideoMirrored = (port.input as? AVCaptureDeviceInput)?.device.position == .front
-                }
-                attachedPort = port
+            guard session.canAddConnection(connection) else {
+                attachedPort = nil
+                return
             }
+
+            session.addConnection(connection)
+            configureMirroring(on: connection, for: port)
+            attachedPort = port
+        }
+
+        func detach() {
+            guard let session = previewLayer.session as? AVCaptureMultiCamSession else {
+                attachedPort = nil
+                return
+            }
+
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
+            detachCurrentConnection(in: session)
+        }
+
+        private func detachCurrentConnection(in session: AVCaptureMultiCamSession) {
+            if let existing = previewLayer.connection {
+                session.removeConnection(existing)
+            }
+            attachedPort = nil
+        }
+
+        /// A port can feed only one preview layer. Steal it before reattaching on swap.
+        private func freePreviewConnections(for port: AVCaptureInput.Port, in session: AVCaptureMultiCamSession) {
+            for connection in session.connections {
+                let usesPort = connection.inputPorts.contains { $0 === port }
+                let isPreview = connection.videoPreviewLayer != nil
+                if usesPort && isPreview {
+                    session.removeConnection(connection)
+                }
+            }
+        }
+
+        private func configureMirroring(on connection: AVCaptureConnection, for port: AVCaptureInput.Port) {
+            guard connection.isVideoMirroringSupported else { return }
+            let isFront = (port.input as? AVCaptureDeviceInput)?.device.position == .front
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = isFront
         }
     }
 }

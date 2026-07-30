@@ -10,10 +10,15 @@ struct PiPWindowView: View {
     let containerSize: CGSize
 
     @State private var dragOrigin: CGPoint?
+    @State private var pinchStartScale: CGFloat?
 
     private var pipSize: CGSize {
-        let width = containerSize.width * 0.28
-        return CGSize(width: width, height: width * 1.25)
+        let width = containerSize.width * viewModel.pipScale
+        return CGSize(width: width, height: width * viewModel.pipShape.heightMultiplier)
+    }
+
+    private var cornerRadius: CGFloat {
+        min(pipSize.width, pipSize.height) * 0.12
     }
 
     private var defaultPosition: CGPoint {
@@ -33,32 +38,47 @@ struct PiPWindowView: View {
             .onTapGesture {
                 viewModel.swapCameras()
             }
-            .gesture(dragGesture)
+            .gesture(viewModel.isRecording ? nil : interactionGestures)
             .position(position)
             .onChange(of: containerSize) { _, newSize in
                 clampStoredPosition(in: newSize)
             }
+            .onChange(of: viewModel.pipShape) { _, _ in
+                clampStoredPosition(in: containerSize)
+            }
+            .onChange(of: viewModel.isPiPRounded) { _, _ in
+                clampStoredPosition(in: containerSize)
+            }
+            .onChange(of: viewModel.pipScale) { _, _ in
+                clampStoredPosition(in: containerSize)
+            }
+    }
+
+    private var interactionGestures: some Gesture {
+        SimultaneousGesture(dragGesture, magnificationGesture)
     }
 
     @ViewBuilder
     private var styledPip: some View {
         switch viewModel.pipShape {
-        case .square:
-            pipContent
-                .clipShape(Rectangle())
-                .overlay { borderStroke(Rectangle()) }
-                .contentShape(Rectangle())
-        case .roundedSquare:
-            let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-            pipContent
-                .clipShape(shape)
-                .overlay { borderStroke(shape) }
-                .contentShape(shape)
         case .circle:
             pipContent
                 .clipShape(Circle())
                 .overlay { borderStroke(Circle()) }
                 .contentShape(Circle())
+        case .square, .rectangle:
+            if viewModel.isPiPRounded {
+                let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                pipContent
+                    .clipShape(shape)
+                    .overlay { borderStroke(shape) }
+                    .contentShape(shape)
+            } else {
+                pipContent
+                    .clipShape(Rectangle())
+                    .overlay { borderStroke(Rectangle()) }
+                    .contentShape(Rectangle())
+            }
         }
     }
 
@@ -66,6 +86,7 @@ struct PiPWindowView: View {
     private var pipContent: some View {
         if viewModel.isSessionRunning, let port = viewModel.secondaryPort {
             CameraPreviewView(session: viewModel.session, inputPort: port)
+                .id("pip-\(ObjectIdentifier(port))")
         } else {
             Rectangle()
                 .fill(
@@ -86,16 +107,21 @@ struct PiPWindowView: View {
     @ViewBuilder
     private func borderStroke<S: Shape>(_ shape: S) -> some View {
         if viewModel.isBorderEnabled {
-            shape.stroke(
-                viewModel.borderStyle.color,
-                style: StrokeStyle(lineWidth: viewModel.borderWidth, dash: [6, 4])
+            let lineStyle = viewModel.borderLineStyle
+            let stroke = StrokeStyle(
+                lineWidth: viewModel.borderWidth,
+                dash: lineStyle == .dashed ? [6, 4] : []
             )
+            shape.stroke(viewModel.borderColor, style: stroke)
         }
     }
 
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 4)
             .onChanged { value in
+                guard !viewModel.isRecording else { return }
+                // Prefer pinch when two-finger interaction is active.
+                guard pinchStartScale == nil else { return }
                 let origin = dragOrigin ?? position
                 if dragOrigin == nil {
                     dragOrigin = origin
@@ -108,6 +134,23 @@ struct PiPWindowView: View {
             }
             .onEnded { _ in
                 dragOrigin = nil
+            }
+    }
+
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                guard !viewModel.isRecording else { return }
+                if pinchStartScale == nil {
+                    pinchStartScale = viewModel.pipScale
+                    dragOrigin = nil
+                }
+                guard let start = pinchStartScale else { return }
+                viewModel.pipScale = start * value
+            }
+            .onEnded { _ in
+                pinchStartScale = nil
+                clampStoredPosition(in: containerSize)
             }
     }
 

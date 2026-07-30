@@ -13,7 +13,11 @@ struct BottomBarView: View {
             zoomSelector
 
             HStack(spacing: 28) {
-                galleryButton
+                if viewModel.isRecording {
+                    pauseButton
+                } else {
+                    galleryButton
+                }
                 shutterButton
                 swapButton
             }
@@ -53,24 +57,45 @@ struct BottomBarView: View {
     }
 
     private var galleryButton: some View {
-        Group {
-            if let image = viewModel.lastCapturedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 44, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(.white.opacity(0.8), lineWidth: 1)
-                    )
-            } else {
-                Image(systemName: "photo.on.rectangle")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+        Button {
+            viewModel.openGallery()
+        } label: {
+            Group {
+                if let image = viewModel.lastCapturedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(.white.opacity(0.8), lineWidth: 1)
+                        )
+                } else {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
             }
+            .scaleEffect(viewModel.galleryPulseScale)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open Gallery")
+    }
+
+    private var pauseButton: some View {
+        Button {
+            viewModel.toggleRecordingPause()
+        } label: {
+            Image(systemName: viewModel.isRecordingPaused ? "play.fill" : "pause.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(Color.white.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(viewModel.isRecordingPaused ? "Resume Recording" : "Pause Recording")
     }
 
     private var shutterButton: some View {

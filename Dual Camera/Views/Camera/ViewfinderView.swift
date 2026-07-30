@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ViewfinderView: View {
     @Bindable var viewModel: CameraViewModel
+    @State private var splitDragStartRatio: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
@@ -32,6 +33,12 @@ struct ViewfinderView: View {
             }
             .frame(width: size.width, height: size.height)
             .clipped()
+            .onAppear {
+                viewModel.viewfinderSize = size
+            }
+            .onChange(of: size) { _, newSize in
+                viewModel.viewfinderSize = newSize
+            }
         }
     }
 
@@ -45,30 +52,136 @@ struct ViewfinderView: View {
 
     @ViewBuilder
     private func splitLayout(axis: Axis, size: CGSize) -> some View {
-        Group {
+        let ratio = axis == .horizontal
+            ? viewModel.verticalSplitRatio
+            : viewModel.horizontalSplitRatio
+
+        ZStack {
             if axis == .horizontal {
-                HStack(spacing: 2) {
+                HStack(spacing: 0) {
                     primaryPreview
+                        .frame(width: size.width * ratio)
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.swapCameras() }
+
                     secondaryPreview
+                        .frame(width: size.width * (1 - ratio))
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.swapCameras() }
                 }
             } else {
-                VStack(spacing: 2) {
+                VStack(spacing: 0) {
                     primaryPreview
+                        .frame(height: size.height * ratio)
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.swapCameras() }
+
                     secondaryPreview
+                        .frame(height: size.height * (1 - ratio))
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture { viewModel.swapCameras() }
                 }
             }
+
+            splitDivider(axis: axis, size: size, ratio: ratio)
         }
         .frame(width: size.width, height: size.height)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            viewModel.swapCameras()
+    }
+
+    private func splitDivider(axis: Axis, size: CGSize, ratio: CGFloat) -> some View {
+        let hitSize: CGFloat = 44
+        let lineWidth = max(viewModel.borderWidth, 1)
+        let separatorColor = viewModel.borderColor
+        let dash: [CGFloat] = viewModel.borderLineStyle == .dashed ? [8, 6] : []
+
+        return ZStack {
+            if viewModel.isBorderEnabled {
+                separatorLine(axis: axis, size: size, lineWidth: lineWidth, color: separatorColor, dash: dash)
+            }
+
+            // Center grip — always present so the split stays resizable.
+            Capsule()
+                .fill(viewModel.isBorderEnabled ? separatorColor : Color.white.opacity(0.9))
+                .frame(
+                    width: axis == .horizontal ? max(lineWidth + 2, 5) : 56,
+                    height: axis == .horizontal ? 56 : max(lineWidth + 2, 5)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
         }
+        .frame(
+            width: axis == .horizontal ? hitSize : size.width,
+            height: axis == .horizontal ? size.height : hitSize
+        )
+        .contentShape(Rectangle())
+        .position(
+            x: axis == .horizontal ? size.width * ratio : size.width / 2,
+            y: axis == .horizontal ? size.height / 2 : size.height * ratio
+        )
+        .gesture(viewModel.isRecording ? nil : splitDragGesture(axis: axis, size: size))
+        .allowsHitTesting(!viewModel.isRecording)
+        .accessibilityLabel("Resize split")
+    }
+
+    @ViewBuilder
+    private func separatorLine(
+        axis: Axis,
+        size: CGSize,
+        lineWidth: CGFloat,
+        color: Color,
+        dash: [CGFloat]
+    ) -> some View {
+        let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: dash)
+        let mid: CGFloat = 22
+
+        if axis == .horizontal {
+            Path { path in
+                path.move(to: CGPoint(x: mid, y: 0))
+                path.addLine(to: CGPoint(x: mid, y: size.height))
+            }
+            .stroke(color, style: style)
+            .frame(width: 44, height: size.height)
+        } else {
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: mid))
+                path.addLine(to: CGPoint(x: size.width, y: mid))
+            }
+            .stroke(color, style: style)
+            .frame(width: size.width, height: 44)
+        }
+    }
+
+    private func splitDragGesture(axis: Axis, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard !viewModel.isRecording else { return }
+                let currentRatio = axis == .horizontal
+                    ? viewModel.verticalSplitRatio
+                    : viewModel.horizontalSplitRatio
+                let start = splitDragStartRatio ?? currentRatio
+                if splitDragStartRatio == nil {
+                    splitDragStartRatio = start
+                }
+
+                if axis == .horizontal {
+                    viewModel.verticalSplitRatio = start + value.translation.width / max(size.width, 1)
+                } else {
+                    viewModel.horizontalSplitRatio = start + value.translation.height / max(size.height, 1)
+                }
+            }
+            .onEnded { _ in
+                splitDragStartRatio = nil
+            }
     }
 
     @ViewBuilder
     private var primaryPreview: some View {
         if viewModel.isSessionRunning, let port = viewModel.primaryPort {
             CameraPreviewView(session: viewModel.session, inputPort: port)
+                .id("primary-\(ObjectIdentifier(port))")
         } else {
             placeholder(colors: [.blue.opacity(0.75), .purple.opacity(0.65)], symbol: "camera.fill")
         }
@@ -78,6 +191,7 @@ struct ViewfinderView: View {
     private var secondaryPreview: some View {
         if viewModel.isSessionRunning, let port = viewModel.secondaryPort {
             CameraPreviewView(session: viewModel.session, inputPort: port)
+                .id("secondary-\(ObjectIdentifier(port))")
         } else {
             placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.square")
         }

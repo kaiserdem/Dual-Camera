@@ -4,6 +4,7 @@
 //
 
 import AVFoundation
+import ImageIO
 import Photos
 import UIKit
 import Observation
@@ -17,7 +18,10 @@ final class CameraManager: NSObject {
     private(set) var isSessionRunning = false
     private(set) var isConfigured = false
     private(set) var isRecording = false
+    private(set) var isRecordingPaused = false
     private(set) var lastCapturedImage: UIImage?
+    /// Bumps each time a dual photo is ready — drives gallery capture feedback.
+    private(set) var photoCaptureCount = 0
     private(set) var isMultiCamAvailable = MultiCamSupport.isSupported
     private(set) var isPrimaryBack = true
     private(set) var hasUltraWide = false
@@ -28,15 +32,19 @@ final class CameraManager: NSObject {
     private let sessionQueue = DispatchQueue(label: "com.dualcamera.session")
     private let backPhotoOutput = AVCapturePhotoOutput()
     private let frontPhotoOutput = AVCapturePhotoOutput()
-    private let movieFileOutput = AVCaptureMovieFileOutput()
+    private let videoEngine = DualVideoEngine()
 
     private var backCameraInput: AVCaptureDeviceInput?
     private var frontCameraInput: AVCaptureDeviceInput?
     private var microphoneInput: AVCaptureDeviceInput?
     private var backDevice: AVCaptureDevice?
     private var ultraWideDevice: AVCaptureDevice?
-    private var photoDelegate: PhotoCaptureDelegate?
-    private var movieDelegate: MovieRecordingDelegate?
+
+    private var dualPhotoDelegates: [PhotoCaptureDelegate] = []
+    private var activeLayoutContext: CaptureLayoutContext?
+    private var pendingPrimaryImage: UIImage?
+    private var pendingSecondaryImage: UIImage?
+    private let photoLock = NSLock()
 
     var primaryVideoPort: AVCaptureInput.Port? {
         isPrimaryBack ? backVideoPort : frontVideoPort
@@ -44,6 +52,24 @@ final class CameraManager: NSObject {
 
     var secondaryVideoPort: AVCaptureInput.Port? {
         isPrimaryBack ? frontVideoPort : backVideoPort
+    }
+
+    override init() {
+        super.init()
+        videoEngine.onRecordingFinished = { [weak self] result in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isRecording = false
+                switch result {
+                case .success(let url):
+                    self.isRecordingPaused = false
+                    self.saveVideoToPhotos(url)
+                case .failure(let error):
+                    self.isRecordingPaused = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     func prepare() {
@@ -54,12 +80,12 @@ final class CameraManager: NSObject {
 
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            configureAndStart()
+            requestMicrophoneThenConfigure()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 Task { @MainActor in
                     if granted {
-                        self?.configureAndStart()
+                        self?.requestMicrophoneThenConfigure()
                     } else {
                         self?.errorMessage = "Camera access is required to use Dual Camera."
                     }
@@ -70,20 +96,40 @@ final class CameraManager: NSObject {
         }
     }
 
+    private func requestMicrophoneThenConfigure() {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized, .denied, .restricted:
+            configureAndStart()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
+                Task { @MainActor in
+                    self?.configureAndStart()
+                }
+            }
+        @unknown default:
+            configureAndStart()
+        }
+    }
+
     func stopSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            if self.isRecording {
+                self.videoEngine.stopRecording()
+            }
             if self.session.isRunning {
                 self.session.stopRunning()
             }
             Task { @MainActor in
                 self.isSessionRunning = false
+                self.isRecording = false
             }
         }
     }
 
     func swapCameras() {
         isPrimaryBack.toggle()
+        videoEngine.updatePrimaryBack(isPrimaryBack)
     }
 
     func setZoom(_ level: ZoomLevel) {
@@ -97,9 +143,7 @@ final class CameraManager: NSObject {
 
             guard let device = self.backDevice else { return }
             if level == .half && !self.hasUltraWide {
-                Task { @MainActor in
-                    self.applyZoom(on: device, factor: 1.0)
-                }
+                self.applyZoom(on: device, factor: 1.0)
                 return
             }
 
@@ -126,80 +170,106 @@ final class CameraManager: NSObject {
         }
     }
 
-    func takePhoto() {
+    func takePhoto(layout: CaptureLayoutContext) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            let output = self.isPrimaryBack ? self.backPhotoOutput : self.frontPhotoOutput
-            guard let connection = output.connection(with: .video), connection.isEnabled else {
+            guard !self.isRecording else {
+                Task { @MainActor in
+                    self.errorMessage = "Stop video recording before taking a photo."
+                }
+                return
+            }
+
+            guard self.backPhotoOutput.connection(with: .video)?.isEnabled == true,
+                  self.frontPhotoOutput.connection(with: .video)?.isEnabled == true else {
                 Task { @MainActor in
                     self.errorMessage = "Photo capture is not available."
                 }
                 return
             }
 
-            let settings = AVCapturePhotoSettings()
-            if output.supportedFlashModes.contains(.on) {
-                switch self.flashMode {
-                case .off: settings.flashMode = .off
-                case .on: settings.flashMode = .on
-                case .auto: settings.flashMode = .auto
-                }
-            }
+            self.activeLayoutContext = layout
+            self.pendingPrimaryImage = nil
+            self.pendingSecondaryImage = nil
+            self.dualPhotoDelegates.removeAll()
 
-            let delegate = PhotoCaptureDelegate { [weak self] image in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.photoDelegate = nil
-                    if let image {
-                        self.lastCapturedImage = image
-                        self.saveImageToPhotos(image)
-                    }
-                }
+            let backSettings = self.makePhotoSettings(for: self.backPhotoOutput)
+            let frontSettings = self.makePhotoSettings(for: self.frontPhotoOutput)
+
+            let backDelegate = PhotoCaptureDelegate { [weak self] image in
+                self?.handleDualPhoto(image: image, isBack: true)
             }
-            self.photoDelegate = delegate
-            output.capturePhoto(with: settings, delegate: delegate)
+            let frontDelegate = PhotoCaptureDelegate { [weak self] image in
+                self?.handleDualPhoto(image: image, isBack: false)
+            }
+            self.dualPhotoDelegates = [backDelegate, frontDelegate]
+
+            self.backPhotoOutput.capturePhoto(with: backSettings, delegate: backDelegate)
+            self.frontPhotoOutput.capturePhoto(with: frontSettings, delegate: frontDelegate)
         }
     }
 
-    func toggleRecording() {
+    func toggleRecording(layout: CaptureLayoutContext) {
         if isRecording {
             stopRecording()
         } else {
-            startRecording()
+            startRecording(layout: layout)
         }
     }
 
-    func startRecording() {
+    func startRecording(layout: CaptureLayoutContext) {
+        VideoDebugLog.log("CameraManager.startRecording isConfigured=\(videoEngine.isConfigured)")
+        guard !isRecording else {
+            VideoDebugLog.log("CameraManager.startRecording ignored — already recording")
+            return
+        }
+        guard videoEngine.isConfigured else {
+            VideoDebugLog.log("ERROR video engine not configured")
+            errorMessage = "Video engine is not ready."
+            return
+        }
+        isRecording = true
+        isRecordingPaused = false
+        videoEngine.updatePrimaryBack(isPrimaryBack)
+
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            guard !self.movieFileOutput.isRecording else { return }
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("mov")
-
-            let delegate = MovieRecordingDelegate { [weak self] url in
+            do {
+                try self.videoEngine.startRecording(layout: layout)
+                VideoDebugLog.log("CameraManager.startRecording engine started")
+            } catch {
+                VideoDebugLog.log("ERROR CameraManager.startRecording \(error)")
                 Task { @MainActor in
-                    guard let self else { return }
-                    self.movieDelegate = nil
                     self.isRecording = false
-                    if let url {
-                        self.saveVideoToPhotos(url)
-                    }
+                    self.isRecordingPaused = false
+                    self.errorMessage = error.localizedDescription
                 }
             }
-            self.movieDelegate = delegate
-            self.movieFileOutput.startRecording(to: tempURL, recordingDelegate: delegate)
-            Task { @MainActor in
-                self.isRecording = true
-            }
+        }
+    }
+
+    func pauseRecording() {
+        guard isRecording, !isRecordingPaused else { return }
+        isRecordingPaused = true
+        sessionQueue.async { [weak self] in
+            self?.videoEngine.pauseRecording()
+        }
+    }
+
+    func resumeRecording() {
+        guard isRecording, isRecordingPaused else { return }
+        isRecordingPaused = false
+        sessionQueue.async { [weak self] in
+            self?.videoEngine.resumeRecording()
         }
     }
 
     func stopRecording() {
+        VideoDebugLog.log("CameraManager.stopRecording isRecording=\(isRecording)")
+        guard isRecording else { return }
+        isRecordingPaused = false
         sessionQueue.async { [weak self] in
-            guard let self, self.movieFileOutput.isRecording else { return }
-            self.movieFileOutput.stopRecording()
+            self?.videoEngine.stopRecording()
         }
     }
 
@@ -248,6 +318,10 @@ final class CameraManager: NSObject {
         ultraWideDevice = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
         hasUltraWide = ultraWideDevice != nil
 
+        // Prefer Full HD multi-cam formats; fall back only if session cost is too high.
+        try configureMultiCamFormat(for: backCamera, preferLowerCost: false)
+        try configureMultiCamFormat(for: frontCamera, preferLowerCost: false)
+
         let backInput = try AVCaptureDeviceInput(device: backCamera)
         let frontInput = try AVCaptureDeviceInput(device: frontCamera)
 
@@ -287,22 +361,19 @@ final class CameraManager: NSObject {
         let frontPhotoConnection = AVCaptureConnection(inputPorts: [frontPort], output: frontPhotoOutput)
         if session.canAddConnection(backPhotoConnection) {
             session.addConnection(backPhotoConnection)
+            configurePortraitRotation(backPhotoConnection)
         }
         if session.canAddConnection(frontPhotoConnection) {
             session.addConnection(frontPhotoConnection)
+            configurePortraitRotation(frontPhotoConnection)
             if frontPhotoConnection.isVideoMirroringSupported {
                 frontPhotoConnection.automaticallyAdjustsVideoMirroring = false
                 frontPhotoConnection.isVideoMirrored = true
             }
         }
 
-        if session.canAddOutput(movieFileOutput) {
-            session.addOutputWithNoConnections(movieFileOutput)
-            let movieConnection = AVCaptureConnection(inputPorts: [backPort], output: movieFileOutput)
-            if session.canAddConnection(movieConnection) {
-                session.addConnection(movieConnection)
-            }
-        }
+        configurePhotoOutputQuality(backPhotoOutput)
+        configurePhotoOutputQuality(frontPhotoOutput)
 
         if let microphone = AVCaptureDevice.default(for: .audio),
            let audioInput = try? AVCaptureDeviceInput(device: microphone),
@@ -311,16 +382,140 @@ final class CameraManager: NSObject {
             microphoneInput = audioInput
         }
 
-        try configureMultiCamFormat(for: backCamera)
-        try configureMultiCamFormat(for: frontCamera)
+        // Leave headroom for dual video data outputs.
+        if session.hardwareCost > 0.75 {
+            VideoDebugLog.log("hardwareCost=\(session.hardwareCost) before video outputs — using efficient formats")
+            try configureMultiCamFormat(for: backCamera, preferLowerCost: true)
+            try configureMultiCamFormat(for: frontCamera, preferLowerCost: true)
+            configurePhotoOutputQuality(backPhotoOutput)
+            configurePhotoOutputQuality(frontPhotoOutput)
+        }
+
+        do {
+            try videoEngine.configure(session: session, backPort: backPort, frontPort: frontPort)
+            videoEngine.updatePrimaryBack(isPrimaryBack)
+            VideoDebugLog.log("CameraManager session configured, hardwareCost=\(session.hardwareCost)")
+            if session.hardwareCost >= 1.0 {
+                VideoDebugLog.log("WARNING hardwareCost>=1, downgrading formats")
+                try configureMultiCamFormat(for: backCamera, preferLowerCost: true)
+                try configureMultiCamFormat(for: frontCamera, preferLowerCost: true)
+                configurePhotoOutputQuality(backPhotoOutput)
+                configurePhotoOutputQuality(frontPhotoOutput)
+                VideoDebugLog.log("downgraded hardwareCost=\(session.hardwareCost)")
+            }
+        } catch {
+            VideoDebugLog.log("ERROR videoEngine.configure failed: \(error)")
+        }
     }
 
-    private func configureMultiCamFormat(for device: AVCaptureDevice) throws {
+    private func configurePortraitRotation(_ connection: AVCaptureConnection) {
+        if connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90
+        }
+    }
+
+    private func configureMultiCamFormat(for device: AVCaptureDevice, preferLowerCost: Bool = false) throws {
         let multiCamFormats = device.formats.filter(\.isMultiCamSupported)
-        guard let format = multiCamFormats.last else { return }
+        guard !multiCamFormats.isEmpty else { return }
+
+        func videoPixels(_ format: AVCaptureDevice.Format) -> Int {
+            let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return Int(d.width) * Int(d.height)
+        }
+
+        func photoPixels(_ format: AVCaptureDevice.Format) -> Int {
+            format.supportedMaxPhotoDimensions
+                .map { Int($0.width) * Int($0.height) }
+                .max() ?? videoPixels(format)
+        }
+
+        // Cap video stream at 1080p-class for dual-cam stability; still pick the
+        // format that unlocks the largest still dimensions under that cap.
+        let maxVideoPixels = 1920 * 1080
+        let minPreferredPixels = 1280 * 720
+
+        let selected: AVCaptureDevice.Format
+        if preferLowerCost {
+            let ranked = multiCamFormats.sorted { videoPixels($0) < videoPixels($1) }
+            selected = ranked.first(where: { videoPixels($0) >= minPreferredPixels }) ?? ranked[0]
+        } else {
+            let underCap = multiCamFormats.filter { videoPixels($0) <= maxVideoPixels }
+            let pool = underCap.isEmpty ? multiCamFormats : underCap
+            selected = pool.max { lhs, rhs in
+                let lp = photoPixels(lhs)
+                let rp = photoPixels(rhs)
+                if lp != rp { return lp < rp }
+                if lhs.isHighPhotoQualitySupported != rhs.isHighPhotoQualitySupported {
+                    return !lhs.isHighPhotoQualitySupported && rhs.isHighPhotoQualitySupported
+                }
+                return videoPixels(lhs) < videoPixels(rhs)
+            } ?? pool[0]
+        }
+
+        let dims = CMVideoFormatDescriptionGetDimensions(selected.formatDescription)
+        let photoDims = selected.supportedMaxPhotoDimensions.max(by: {
+            Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height)
+        })
+        VideoDebugLog.log(
+            """
+            activeFormat \(device.position == .back ? "back" : "front") \
+            video=\(dims.width)x\(dims.height) \
+            photo=\(photoDims.map { "\($0.width)x\($0.height)" } ?? "n/a") \
+            highPhoto=\(selected.isHighPhotoQualitySupported) lowCost=\(preferLowerCost)
+            """
+        )
+
         try device.lockForConfiguration()
-        device.activeFormat = format
+        device.activeFormat = selected
+        if device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.maxFrameRate >= 30 }) {
+            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+        } else if device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.maxFrameRate >= 24 }) {
+            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 24)
+            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 24)
+        }
         device.unlockForConfiguration()
+    }
+
+    private func configurePhotoOutputQuality(_ output: AVCapturePhotoOutput) {
+        output.maxPhotoQualityPrioritization = .quality
+
+        let device = output.connections
+            .flatMap(\.inputPorts)
+            .compactMap { $0.input as? AVCaptureDeviceInput }
+            .map(\.device)
+            .first
+
+        guard let format = device?.activeFormat else { return }
+        let supported = format.supportedMaxPhotoDimensions
+        guard let best = supported.max(by: {
+            Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height)
+        }) else { return }
+
+        output.maxPhotoDimensions = best
+        VideoDebugLog.log("photo maxDimensions \(best.width)x\(best.height)")
+    }
+
+    private func makePhotoSettings(for output: AVCapturePhotoOutput) -> AVCapturePhotoSettings {
+        let settings: AVCapturePhotoSettings
+        if output.availablePhotoCodecTypes.contains(.hevc) {
+            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+        } else {
+            settings = AVCapturePhotoSettings()
+        }
+        settings.photoQualityPrioritization = .quality
+        let maxDimensions = output.maxPhotoDimensions
+        if maxDimensions.width > 0, maxDimensions.height > 0 {
+            settings.maxPhotoDimensions = maxDimensions
+        }
+        if output.supportedFlashModes.contains(.on) {
+            switch flashMode {
+            case .off: settings.flashMode = .off
+            case .on: settings.flashMode = .on
+            case .auto: settings.flashMode = .auto
+            }
+        }
+        return settings
     }
 
     private func switchBackCamera(to device: AVCaptureDevice, preferredZoom: CGFloat) {
@@ -332,6 +527,7 @@ final class CameraManager: NSObject {
         }
 
         do {
+            try configureMultiCamFormat(for: device, preferLowerCost: false)
             let newInput = try AVCaptureDeviceInput(device: device)
             guard session.canAddInput(newInput) else { return }
             session.addInputWithNoConnections(newInput)
@@ -348,6 +544,7 @@ final class CameraManager: NSObject {
             backVideoPort = port
 
             reconnectOutputs(to: port)
+            configurePhotoOutputQuality(backPhotoOutput)
             applyZoom(on: device, factor: max(preferredZoom, 1.0))
         } catch {
             Task { @MainActor in
@@ -363,15 +560,9 @@ final class CameraManager: NSObject {
         let photoConnection = AVCaptureConnection(inputPorts: [port], output: backPhotoOutput)
         if session.canAddConnection(photoConnection) {
             session.addConnection(photoConnection)
+            configurePortraitRotation(photoConnection)
         }
-
-        for connection in movieFileOutput.connections where connection.inputPorts.contains(where: { $0.mediaType == .video }) {
-            session.removeConnection(connection)
-        }
-        let movieConnection = AVCaptureConnection(inputPorts: [port], output: movieFileOutput)
-        if session.canAddConnection(movieConnection) {
-            session.addConnection(movieConnection)
-        }
+        videoEngine.reconnectBack(port: port, session: session)
     }
 
     private func applyZoom(on device: AVCaptureDevice, factor: CGFloat) {
@@ -387,11 +578,76 @@ final class CameraManager: NSObject {
         }
     }
 
+    private func handleDualPhoto(image: UIImage?, isBack: Bool) {
+        photoLock.lock()
+        defer { photoLock.unlock() }
+
+        guard let image else { return }
+
+        if isBack {
+            if isPrimaryBack {
+                pendingPrimaryImage = image
+            } else {
+                pendingSecondaryImage = image
+            }
+        } else {
+            if isPrimaryBack {
+                pendingSecondaryImage = image
+            } else {
+                pendingPrimaryImage = image
+            }
+        }
+
+        guard let primary = pendingPrimaryImage,
+              let secondary = pendingSecondaryImage,
+              let layout = activeLayoutContext else { return }
+
+        pendingPrimaryImage = nil
+        pendingSecondaryImage = nil
+        activeLayoutContext = nil
+        dualPhotoDelegates.removeAll()
+
+        let composed = DualImageCompositor.compose(
+            primary: primary,
+            secondary: secondary,
+            context: layout
+        )
+
+        Task { @MainActor in
+            self.lastCapturedImage = composed
+            self.photoCaptureCount += 1
+            self.saveImageToPhotos(composed)
+        }
+    }
+
     private func saveImageToPhotos(_ image: UIImage) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else { return }
+
+            let directory = FileManager.default.temporaryDirectory
+            let heicURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("heic")
+            let jpegURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("jpg")
+
+            let fileURL: URL?
+            if image.writeHEIC(to: heicURL, compressionQuality: 0.92) {
+                fileURL = heicURL
+            } else if image.writeJPEG(to: jpegURL, compressionQuality: 1.0) {
+                fileURL = jpegURL
+            } else {
+                fileURL = nil
+            }
+
+            guard let fileURL else {
+                PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }
+                return
+            }
+
             PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: fileURL)
+            } completionHandler: { _, _ in
+                try? FileManager.default.removeItem(at: fileURL)
             }
         }
     }
@@ -431,7 +687,7 @@ enum CameraError: LocalizedError {
     }
 }
 
-private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     private let completion: (UIImage?) -> Void
 
     init(completion: @escaping (UIImage?) -> Void) {
@@ -443,29 +699,40 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
-        guard error == nil,
-              let data = photo.fileDataRepresentation(),
+        guard error == nil else {
+            completion(nil)
+            return
+        }
+
+        // Prefer uncompressed bitmap when available — avoids an extra decode round-trip.
+        if let cgImage = photo.cgImageRepresentation() {
+            let orientation = Self.imageOrientation(from: photo)
+            completion(UIImage(cgImage: cgImage, scale: 1, orientation: orientation))
+            return
+        }
+
+        guard let data = photo.fileDataRepresentation(),
               let image = UIImage(data: data) else {
             completion(nil)
             return
         }
         completion(image)
     }
-}
 
-private final class MovieRecordingDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
-    private let completion: (URL?) -> Void
-
-    init(completion: @escaping (URL?) -> Void) {
-        self.completion = completion
-    }
-
-    func fileOutput(
-        _ output: AVCaptureFileOutput,
-        didFinishRecordingTo outputFileURL: URL,
-        from connections: [AVCaptureConnection],
-        error: Error?
-    ) {
-        completion(error == nil ? outputFileURL : nil)
+    private static func imageOrientation(from photo: AVCapturePhoto) -> UIImage.Orientation {
+        guard let raw = photo.metadata[String(kCGImagePropertyOrientation)] as? UInt32,
+              let cgOrientation = CGImagePropertyOrientation(rawValue: raw) else {
+            return .up
+        }
+        switch cgOrientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        }
     }
 }

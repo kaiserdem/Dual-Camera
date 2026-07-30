@@ -7,8 +7,10 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import Observation
+import SwiftUI
 import UIKit
 
+@MainActor
 @Observable
 final class CameraViewModel {
     let cameraManager = CameraManager()
@@ -29,42 +31,116 @@ final class CameraViewModel {
         }
     }
     var pipPosition: CGPoint?
+    var viewfinderSize: CGSize = .zero
     var showSettings = false
 
     var selectedRatio: AspectRatio {
         get { settings.selectedRatio }
-        set { settings.selectedRatio = newValue }
+        set {
+            guard !isRecording else { return }
+            settings.selectedRatio = newValue
+        }
     }
 
     var selectedLayout: CameraLayout {
         get { settings.selectedLayout }
-        set { settings.selectedLayout = newValue }
+        set {
+            guard !isRecording else { return }
+            settings.selectedLayout = newValue
+        }
     }
 
     var pipShape: PiPShape {
         get { settings.pipShape }
-        set { settings.pipShape = newValue }
+        set {
+            guard !isRecording else { return }
+            settings.pipShape = newValue
+        }
+    }
+
+    var isPiPRounded: Bool {
+        get { settings.isPiPRounded }
+        set {
+            guard !isRecording else { return }
+            settings.isPiPRounded = newValue
+        }
+    }
+
+    var pipScale: CGFloat {
+        get { settings.pipScale }
+        set {
+            guard !isRecording else { return }
+            settings.pipScale = AppSettings.clampedPipScale(Double(newValue))
+        }
     }
 
     var isBorderEnabled: Bool {
         get { settings.isBorderEnabled }
-        set { settings.isBorderEnabled = newValue }
+        set {
+            guard !isRecording else { return }
+            settings.isBorderEnabled = newValue
+        }
     }
 
     var borderWidth: CGFloat {
         get { settings.borderWidth }
-        set { settings.borderWidth = min(max(newValue, 1), 8) }
+        set {
+            guard !isRecording else { return }
+            settings.borderWidth = min(max(newValue, 1), 8)
+        }
     }
 
     var borderStyle: BorderStyle {
         get { settings.borderStyle }
-        set { settings.borderStyle = newValue }
+        set {
+            guard !isRecording else { return }
+            settings.borderStyle = newValue
+        }
+    }
+
+    var borderColor: Color {
+        get { settings.borderColor }
+        set {
+            guard !isRecording else { return }
+            settings.borderColor = newValue
+        }
+    }
+
+    var borderLineStyle: BorderLineStyle {
+        get { settings.borderLineStyle }
+        set {
+            guard !isRecording else { return }
+            settings.borderLineStyle = newValue
+        }
+    }
+
+    var verticalSplitRatio: CGFloat {
+        get { settings.verticalSplitRatio }
+        set {
+            guard !isRecording else { return }
+            settings.verticalSplitRatio = AppSettings.clampedSplitRatio(Double(newValue))
+        }
+    }
+
+    var horizontalSplitRatio: CGFloat {
+        get { settings.horizontalSplitRatio }
+        set {
+            guard !isRecording else { return }
+            settings.horizontalSplitRatio = AppSettings.clampedSplitRatio(Double(newValue))
+        }
     }
 
     var isMultiCamAvailable: Bool { cameraManager.isMultiCamAvailable }
     var isSessionRunning: Bool { cameraManager.isSessionRunning }
     var isRecording: Bool { cameraManager.isRecording }
+    var isRecordingPaused: Bool { cameraManager.isRecordingPaused }
+    var recordingElapsed: TimeInterval = 0
     var lastCapturedImage: UIImage? { cameraManager.lastCapturedImage }
+    var photoCaptureCount: Int { cameraManager.photoCaptureCount }
+    /// 0...1 white flash over the viewfinder after shutter.
+    var shutterFlashOpacity: Double = 0
+    /// Gallery thumbnail pulse scale.
+    var galleryPulseScale: CGFloat = 1
     var errorMessage: String? {
         get { cameraManager.errorMessage }
         set { cameraManager.errorMessage = newValue }
@@ -74,11 +150,23 @@ final class CameraViewModel {
     var session: AVCaptureMultiCamSession { cameraManager.session }
     var levelerRoll: Double { motionManager.roll }
 
+    var formattedRecordingTime: String {
+        let totalSeconds = max(0, Int(recordingElapsed.rounded(.down)))
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private var recordingTimer: Timer?
+    private var recordingAccumulated: TimeInterval = 0
+    private var recordingSegmentStartedAt: Date?
+
     func onAppear() {
         cameraManager.prepare()
     }
 
     func onDisappear() {
+        stopRecordingTimer()
         cameraManager.stopSession()
         motionManager.isActive = false
     }
@@ -101,12 +189,132 @@ final class CameraViewModel {
     }
 
     func handleShutter() {
+        let layout = makeCaptureLayoutContext()
         switch captureMode {
         case .photo:
-            cameraManager.takePhoto()
+            triggerShutterFlash()
+            cameraManager.takePhoto(layout: layout)
         case .video:
-            cameraManager.toggleRecording()
+            if isRecording {
+                cameraManager.toggleRecording(layout: layout)
+            } else {
+                dismissOverlay()
+                cameraManager.toggleRecording(layout: layout)
+            }
         }
+    }
+
+    func triggerShutterFlash() {
+        shutterFlashOpacity = 0.9
+        withAnimation(.easeOut(duration: 0.18)) {
+            shutterFlashOpacity = 0
+        }
+    }
+
+    func triggerGalleryCapturePulse() {
+        var snap = Transaction()
+        snap.disablesAnimations = true
+        withTransaction(snap) {
+            galleryPulseScale = 1.32
+        }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
+            galleryPulseScale = 1
+        }
+    }
+
+    func toggleRecordingPause() {
+        guard isRecording else { return }
+        if isRecordingPaused {
+            cameraManager.resumeRecording()
+            resumeRecordingTimer()
+        } else {
+            cameraManager.pauseRecording()
+            pauseRecordingTimer()
+        }
+    }
+
+    func syncRecordingTimer(isRecording: Bool) {
+        if isRecording {
+            startRecordingTimer()
+        } else {
+            stopRecordingTimer()
+        }
+    }
+
+    private func startRecordingTimer() {
+        stopRecordingTimer()
+        recordingAccumulated = 0
+        recordingElapsed = 0
+        recordingSegmentStartedAt = Date()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.tickRecordingTimer()
+            }
+        }
+    }
+
+    private func pauseRecordingTimer() {
+        if let started = recordingSegmentStartedAt {
+            recordingAccumulated += Date().timeIntervalSince(started)
+            recordingSegmentStartedAt = nil
+        }
+        recordingElapsed = recordingAccumulated
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+    }
+
+    private func resumeRecordingTimer() {
+        recordingSegmentStartedAt = Date()
+        recordingTimer?.invalidate()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.tickRecordingTimer()
+            }
+        }
+    }
+
+    private func stopRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        recordingSegmentStartedAt = nil
+        recordingAccumulated = 0
+        recordingElapsed = 0
+    }
+
+    private func tickRecordingTimer() {
+        guard let started = recordingSegmentStartedAt else {
+            recordingElapsed = recordingAccumulated
+            return
+        }
+        recordingElapsed = recordingAccumulated + Date().timeIntervalSince(started)
+    }
+
+    func makeCaptureLayoutContext() -> CaptureLayoutContext {
+        let size = viewfinderSize == .zero ? CGSize(width: 390, height: 720) : viewfinderSize
+        return CaptureLayoutContext(
+            layout: selectedLayout,
+            pipShape: pipShape,
+            isPiPRounded: isPiPRounded,
+            pipScale: pipScale,
+            isBorderEnabled: isBorderEnabled,
+            borderWidth: borderWidth,
+            borderColor: UIColor(borderColor),
+            borderLineStyle: borderLineStyle,
+            verticalSplitRatio: verticalSplitRatio,
+            horizontalSplitRatio: horizontalSplitRatio,
+            aspectRatio: selectedRatio,
+            viewfinderSize: size,
+            pipCenter: pipPosition ?? CaptureLayoutContext.defaultPiPCenter(
+                in: size,
+                shape: pipShape,
+                scale: pipScale
+            )
+        )
+    }
+
+    func openGallery() {
+        guard let url = URL(string: "photos-redirect://") else { return }
+        UIApplication.shared.open(url)
     }
 
     func increaseBorderWidth() {
@@ -115,5 +323,9 @@ final class CameraViewModel {
 
     func decreaseBorderWidth() {
         borderWidth -= 1
+    }
+
+    func applyBorderPreset(_ style: BorderStyle) {
+        settings.applyBorderPreset(style)
     }
 }

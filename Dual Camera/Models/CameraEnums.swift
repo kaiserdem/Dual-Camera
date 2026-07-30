@@ -72,7 +72,7 @@ enum CameraLayout: String, CaseIterable, Identifiable {
 
 enum PiPShape: String, CaseIterable, Identifiable {
     case square
-    case roundedSquare
+    case rectangle
     case circle
 
     var id: String { rawValue }
@@ -80,9 +80,21 @@ enum PiPShape: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .square: "Square"
-        case .roundedSquare: "Rounded"
+        case .rectangle: "Rectangle"
         case .circle: "Circle"
         }
+    }
+
+    /// Portrait aspect for rectangle; square/circle stay 1:1.
+    var heightMultiplier: CGFloat {
+        switch self {
+        case .square, .circle: 1
+        case .rectangle: 1.25
+        }
+    }
+
+    var supportsRoundedCorners: Bool {
+        self != .circle
     }
 }
 
@@ -103,9 +115,38 @@ enum BorderStyle: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .cyan: .cyan
-        case .black: .black
-        case .white: .white
+        case .cyan: Color(.sRGB, red: 0, green: 1, blue: 1, opacity: 1)
+        case .black: Color(.sRGB, red: 0, green: 0, blue: 0, opacity: 1)
+        case .white: Color(.sRGB, red: 1, green: 1, blue: 1, opacity: 1)
+        }
+    }
+
+    var hexValue: String {
+        switch self {
+        case .cyan: "#00FFFFFF"
+        case .black: "#000000FF"
+        case .white: "#FFFFFFFF"
+        }
+    }
+}
+
+enum BorderLineStyle: String, CaseIterable, Identifiable {
+    case dashed
+    case solid
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dashed: "Dashed"
+        case .solid: "Solid"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dashed: "rectangle.dashed"
+        case .solid: "rectangle"
         }
     }
 }

@@ -9,6 +9,21 @@ struct TopBarView: View {
     @Bindable var viewModel: CameraViewModel
 
     var body: some View {
+        Group {
+            if viewModel.isRecording {
+                RecordingTopBarView(viewModel: viewModel)
+            } else {
+                IdleTopBarView(viewModel: viewModel)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.isRecording)
+    }
+}
+
+private struct IdleTopBarView: View {
+    @Bindable var viewModel: CameraViewModel
+
+    var body: some View {
         HStack(spacing: 18) {
             Button {
                 viewModel.showSettings = true
@@ -40,13 +55,7 @@ struct TopBarView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(
-            LinearGradient(
-                colors: [.black.opacity(0.55), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(topBarBackground)
     }
 
     private func overlayButton(title: String?, systemImage: String, overlay: ActiveOverlay) -> some View {
@@ -70,4 +79,39 @@ struct TopBarView: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+private struct RecordingTopBarView: View {
+    @Bindable var viewModel: CameraViewModel
+
+    var body: some View {
+        HStack {
+            Spacer()
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 10, height: 10)
+                    .opacity(viewModel.isRecordingPaused ? 0.4 : 1)
+
+                Text(viewModel.formattedRecordingTime)
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(topBarBackground)
+    }
+}
+
+private var topBarBackground: some View {
+    LinearGradient(
+        colors: [.black.opacity(0.55), .clear],
+        startPoint: .top,
+        endPoint: .bottom
+    )
 }
