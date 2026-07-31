@@ -7,21 +7,89 @@ import SwiftUI
 
 struct TopBarView: View {
     @Bindable var viewModel: CameraViewModel
+    @State private var collapseDragOffset: CGFloat = 0
+
+    private let collapseThreshold: CGFloat = -28
 
     var body: some View {
         Group {
             if viewModel.isRecording {
                 RecordingTopBarView(viewModel: viewModel)
+            } else if viewModel.isTopBarCollapsed {
+                collapsedPill
             } else {
-                IdleTopBarView(viewModel: viewModel)
+                expandedIdleBar
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: viewModel.isRecording)
+        .animation(.easeInOut(duration: 0.22), value: viewModel.isRecording)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.isTopBarCollapsed)
+    }
+
+    // MARK: - Collapsed
+
+    private var collapsedPill: some View {
+        Button {
+            viewModel.isTopBarCollapsed = false
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 44, height: 28)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.14))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show top bar")
+        .gesture(expandDragGesture)
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Expanded idle
+
+    private var expandedIdleBar: some View {
+        IdleTopBarView(viewModel: viewModel) {
+            viewModel.isTopBarCollapsed = true
+        }
+        .offset(y: min(collapseDragOffset, 0))
+        .opacity(1 + Double(min(collapseDragOffset, 0)) / 80)
+        .highPriorityGesture(collapseDragGesture)
+    }
+
+    // MARK: - Gestures
+
+    private var collapseDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                // Only upward drag collapses.
+                collapseDragOffset = min(0, value.translation.height)
+            }
+            .onEnded { value in
+                let shouldCollapse = value.translation.height < collapseThreshold
+                    || value.predictedEndTranslation.height < collapseThreshold * 1.5
+                collapseDragOffset = 0
+                if shouldCollapse {
+                    viewModel.isTopBarCollapsed = true
+                    viewModel.dismissOverlay()
+                }
+            }
+    }
+
+    private var expandDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onEnded { value in
+                if value.translation.height > 20
+                    || value.predictedEndTranslation.height > 36 {
+                    viewModel.isTopBarCollapsed = false
+                }
+            }
     }
 }
 
 private struct IdleTopBarView: View {
     @Bindable var viewModel: CameraViewModel
+    var onCollapse: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -56,6 +124,16 @@ private struct IdleTopBarView: View {
                 systemImage: "ellipsis",
                 overlay: .more
             )
+
+            Button(action: onCollapse) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 36, height: 40)
+                    .background(Circle().fill(Color.white.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hide top bar")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

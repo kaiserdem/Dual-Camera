@@ -22,9 +22,10 @@ struct PiPWindowView: View {
     }
 
     private var defaultPosition: CGPoint {
-        CGPoint(
-            x: containerSize.width - pipSize.width / 2 - 16,
-            y: pipSize.height / 2 + 16
+        CaptureLayoutContext.defaultPiPCenter(
+            in: containerSize,
+            shape: viewModel.pipShape,
+            scale: viewModel.pipScale
         )
     }
 
@@ -45,7 +46,7 @@ struct PiPWindowView: View {
                 clampStoredPosition(in: newSize)
             }
             .onChange(of: viewModel.pipShape) { _, _ in
-                clampStoredPosition(in: containerSize)
+                viewModel.pipPosition = nil
             }
             .onChange(of: viewModel.isPiPRounded) { _, _ in
                 clampStoredPosition(in: containerSize)
@@ -161,11 +162,14 @@ struct PiPWindowView: View {
     }
 
     private func clamp(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        let halfWidth = pipSize.width / 2
-        let halfHeight = pipSize.height / 2
+        let width = size.width * viewModel.pipScale * viewModel.pipShape.widthMultiplier
+        let height = width * viewModel.pipShape.heightMultiplier
+        let halfWidth = width / 2
+        let halfHeight = height / 2
+        let inset = CaptureLayoutContext.pipEdgeInset
         return CGPoint(
-            x: min(max(point.x, halfWidth + 8), size.width - halfWidth - 8),
-            y: min(max(point.y, halfHeight + 8), size.height - halfHeight - 8)
+            x: min(max(point.x, halfWidth + inset), size.width - halfWidth - inset),
+            y: min(max(point.y, halfHeight + inset), size.height - halfHeight - inset)
         )
     }
 }

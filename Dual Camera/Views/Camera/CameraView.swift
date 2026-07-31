@@ -57,6 +57,7 @@ struct CameraView: View {
                 viewModel.syncRecordingTimer(isRecording: isRecording)
                 if isRecording {
                     viewModel.dismissOverlay()
+                    viewModel.isTopBarCollapsed = false
                 }
             }
             .onChange(of: viewModel.photoCaptureCount) { _, count in
@@ -87,11 +88,14 @@ struct CameraView: View {
 
     private var floatingChromeLayout: some View {
         ZStack {
-            viewfinderSection(fillBackground: usesFullBleedCameraBackground)
+            viewfinderSection()
 
             VStack(spacing: 0) {
                 TopBarView(viewModel: viewModel)
-                    .cameraFloatingPanel()
+                    .modifier(TopBarChromeModifier(
+                        usesFloatingChrome: true,
+                        isCollapsed: viewModel.isTopBarCollapsed && !viewModel.isRecording
+                    ))
                     .padding(.horizontal, 16)
                     .padding(.top, 13)
 
@@ -110,7 +114,7 @@ struct CameraView: View {
     /// Classic bars over an edge-to-edge camera stage (no black letterbox).
     private var classicFullBleedChromeLayout: some View {
         ZStack {
-            viewfinderSection(fillBackground: true)
+            viewfinderSection()
 
             VStack(spacing: 0) {
                 TopBarView(viewModel: viewModel)
@@ -152,7 +156,7 @@ struct CameraView: View {
                 )
                 .padding(.top, 5)
 
-            viewfinderSection(fillBackground: false)
+            viewfinderSection()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             BottomBarView(viewModel: viewModel)
@@ -169,31 +173,24 @@ struct CameraView: View {
     }
 
     /// Space reserved so Fit / framed ratios sit between floating chrome panels.
-    private var chromeTopInset: CGFloat { 72 }
+    private var chromeTopInset: CGFloat {
+        viewModel.isTopBarCollapsed ? 40 : 72
+    }
     private var chromeBottomInset: CGFloat { 200 }
 
-    /// Live capture stage: size always matches the selected ratio so preview = export framing.
-    /// Full-bleed background only expands **Fit** edge-to-edge; other modes keep a visible frame.
-    private func viewfinderSection(fillBackground: Bool) -> some View {
+    /// Live capture stage. All modes except Full pin to screen width; Full may letterbox sides (9:16).
+    private func viewfinderSection() -> some View {
         GeometryReader { proxy in
-            let ratio = viewModel.selectedRatio.ratio
-            let isFit = ratio == nil
-            let expandsUnderChrome = fillBackground && isFit && usesFloatingChrome
-            let topInset: CGFloat = {
-                guard usesFloatingChrome, !expandsUnderChrome else { return 0 }
-                return chromeTopInset
-            }()
-            let bottomInset: CGFloat = {
-                guard usesFloatingChrome, !expandsUnderChrome else { return 0 }
-                return chromeBottomInset
-            }()
+            let topInset: CGFloat = usesFloatingChrome ? chromeTopInset : 0
+            let bottomInset: CGFloat = usesFloatingChrome ? chromeBottomInset : 0
             let availableSize = CGSize(
                 width: proxy.size.width,
                 height: max(proxy.size.height - topInset - bottomInset, 1)
             )
-            let framedSize = (fillBackground && isFit)
-                ? availableSize
-                : aspectFittedSize(in: availableSize, ratio: ratio)
+            let framedSize = captureFrameSize(
+                in: availableSize,
+                for: viewModel.selectedRatio
+            )
 
             ViewfinderView(viewModel: viewModel)
                 .frame(width: framedSize.width, height: framedSize.height)
@@ -211,10 +208,24 @@ struct CameraView: View {
         }
     }
 
+    /// Full (9:16) may shrink width; Fit / 1:1 / 4:3 / 16:9 always use the full stage width.
+    private func captureFrameSize(in available: CGSize, for aspect: AspectRatio) -> CGSize {
+        switch aspect {
+        case .full:
+            return available
+        case .fill:
+            return aspectFittedSize(in: available, ratio: aspect.ratio)
+        case .square, .fourThree, .sixteenNine:
+            guard let ratio = aspect.ratio else { return available }
+            let width = available.width
+            return CGSize(width: width, height: width / ratio)
+        }
+    }
+
     @ViewBuilder
     private func overlayPanel(in containerSize: CGSize) -> some View {
         VStack {
-            Spacer().frame(height: usesFloatingChrome ? 78 : 64)
+            Spacer().frame(height: usesFloatingChrome ? (viewModel.isTopBarCollapsed ? 44 : 78) : 64)
 
             Group {
                 switch viewModel.activeOverlay {
@@ -298,5 +309,19 @@ private extension View {
                 .fill(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
         )
+    }
+}
+
+/// Full floating panel while expanded; collapsed pill keeps its own compact chrome.
+private struct TopBarChromeModifier: ViewModifier {
+    let usesFloatingChrome: Bool
+    let isCollapsed: Bool
+
+    func body(content: Content) -> some View {
+        if usesFloatingChrome && !isCollapsed {
+            content.cameraFloatingPanel()
+        } else {
+            content
+        }
     }
 }

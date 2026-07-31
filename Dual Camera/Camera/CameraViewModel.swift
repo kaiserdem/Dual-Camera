@@ -41,6 +41,8 @@ final class CameraViewModel {
     }
     var viewfinderSize: CGSize = .zero
     var showSettings = false
+    /// Idle top chrome tucked away — only a restore pill remains.
+    var isTopBarCollapsed = false
 
     /// Layout / PiP / split / ratio edits are locked for the duration of a take.
     var isLayoutLocked: Bool { isRecording }
@@ -49,7 +51,12 @@ final class CameraViewModel {
         get { settings.selectedRatio }
         set {
             guard !isLayoutLocked else { return }
+            let previous = settings.selectedRatio
             settings.selectedRatio = newValue
+            // Keep one default PiP placement across ratio modes (absolute coords don't transfer).
+            if previous != newValue {
+                pipPosition = nil
+            }
         }
     }
 

@@ -22,6 +22,8 @@ struct CaptureLayoutContext: @unchecked Sendable {
     /// PiP center in viewfinder coordinates.
     var pipCenter: CGPoint
 
+    static let pipEdgeInset: CGFloat = 16
+
     static func defaultPiPCenter(
         in size: CGSize,
         shape: PiPShape = .square,
@@ -29,9 +31,10 @@ struct CaptureLayoutContext: @unchecked Sendable {
     ) -> CGPoint {
         let pipWidth = size.width * scale * shape.widthMultiplier
         let pipHeight = pipWidth * shape.heightMultiplier
+        let inset = pipEdgeInset
         return CGPoint(
-            x: size.width - pipWidth / 2 - 16,
-            y: pipHeight / 2 + 16
+            x: size.width - pipWidth / 2 - inset,
+            y: pipHeight / 2 + inset
         )
     }
 
@@ -103,9 +106,9 @@ struct CaptureLayoutContext: @unchecked Sendable {
         return Self.evenEncoderSize(raw)
     }
 
-    /// Fit keeps the whole camera frame (no side crop). Full and fixed ratios may fill/crop.
+    /// Fit / fixed ratios fill the frame. Only Full may letterbox on the sides.
     var prefersAspectFit: Bool {
-        aspectRatio.prefersAspectFit
+        false
     }
 
     private static func evenEncoderSize(_ size: CGSize) -> CGSize {

@@ -187,7 +187,7 @@ struct ViewfinderView: View {
     }
 
     private var previewGravity: AVLayerVideoGravity {
-        viewModel.selectedRatio.prefersAspectFit ? .resizeAspect : .resizeAspectFill
+        .resizeAspectFill
     }
 
     @ViewBuilder
