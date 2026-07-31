@@ -68,8 +68,8 @@ struct CaptureLayoutContext: @unchecked Sendable {
     }
 
     /// Encoder frame size matching the selected ratio.
-    /// Crop/full uses the on-screen viewfinder aspect so framing matches preview
-    /// (forced 9:16 was narrower and aspect-fill cropped the sides).
+    /// Fit uses the on-screen viewfinder aspect so framing matches preview.
+    /// Full uses portrait 9:16 like the stock Camera app.
     func videoFrameSize(maxLongEdge: CGFloat = 1920) -> CGSize {
         let aspect: CGFloat
         switch aspectRatio {
@@ -79,6 +79,8 @@ struct CaptureLayoutContext: @unchecked Sendable {
             } else {
                 aspect = 9.0 / 16.0
             }
+        case .fill:
+            aspect = 9.0 / 16.0
         case .square, .fourThree, .sixteenNine:
             if let ratio = aspectRatio.ratio {
                 aspect = ratio
@@ -101,9 +103,9 @@ struct CaptureLayoutContext: @unchecked Sendable {
         return Self.evenEncoderSize(raw)
     }
 
-    /// Crop/full keeps the whole camera frame (no side crop). Fixed ratios may fill/crop.
+    /// Fit keeps the whole camera frame (no side crop). Full and fixed ratios may fill/crop.
     var prefersAspectFit: Bool {
-        aspectRatio == .full
+        aspectRatio.prefersAspectFit
     }
 
     private static func evenEncoderSize(_ size: CGSize) -> CGSize {

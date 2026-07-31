@@ -9,7 +9,7 @@ struct BottomBarView: View {
     @Bindable var viewModel: CameraViewModel
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             zoomSelector
 
             HStack(spacing: 28) {
@@ -24,31 +24,24 @@ struct BottomBarView: View {
 
             modeSelector
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
-        .padding(.bottom, 20)
-        .background(
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.7)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
     }
 
     private var zoomSelector: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ForEach(ZoomLevel.allCases) { level in
                 Button {
                     viewModel.selectZoom(level)
                 } label: {
                     Text(level.title)
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(viewModel.selectedZoom == level ? .yellow : .white)
+                        .foregroundStyle(viewModel.selectedZoom == level ? .black : .white)
                         .frame(width: 36, height: 36)
                         .background(
                             Circle()
-                                .fill(viewModel.selectedZoom == level ? Color.black.opacity(0.7) : Color.black.opacity(0.35))
+                                .fill(viewModel.selectedZoom == level ? Color.yellow : Color.white.opacity(0.12))
                         )
                 }
                 .buttonStyle(.plain)
@@ -73,9 +66,13 @@ struct BottomBarView: View {
                         )
                 } else {
                     Image(systemName: "photo.on.rectangle")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
                 }
             }
             .scaleEffect(viewModel.galleryPulseScale)
@@ -89,10 +86,10 @@ struct BottomBarView: View {
             viewModel.toggleRecordingPause()
         } label: {
             Image(systemName: viewModel.isRecordingPaused ? "play.fill" : "pause.fill")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.white.opacity(0.18)))
+                .background(Circle().fill(Color.white.opacity(0.12)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(viewModel.isRecordingPaused ? "Resume Recording" : "Pause Recording")
@@ -129,9 +126,13 @@ struct BottomBarView: View {
             viewModel.swapCameras()
         } label: {
             Image(systemName: "arrow.triangle.2.circlepath.camera")
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.12))
+                )
                 .opacity(viewModel.isLayoutLocked ? 0.35 : 1)
         }
         .buttonStyle(.plain)
@@ -141,7 +142,7 @@ struct BottomBarView: View {
     }
 
     private var modeSelector: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 8) {
             ForEach(CaptureMode.allCases) { mode in
                 Button {
                     viewModel.captureMode = mode
@@ -150,8 +151,20 @@ struct BottomBarView: View {
                     }
                 } label: {
                     Text(mode.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(viewModel.captureMode == mode ? .yellow : .white.opacity(0.7))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(viewModel.captureMode == mode ? .black : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(viewModel.captureMode == mode ? Color.white : Color.white.opacity(0.12))
+                        )
+                        .overlay {
+                            if viewModel.captureMode == mode {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.yellow.opacity(0.85), lineWidth: 1.5)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
             }

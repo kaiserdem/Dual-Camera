@@ -25,6 +25,8 @@ final class AppSettings {
         static let videoCodec = "settings.videoCodec"
         static let videoContainer = "settings.videoContainer"
         static let videoResolution = "settings.videoResolution"
+        static let floatingCameraChrome = "settings.floatingCameraChrome"
+        static let fullBleedCameraBackground = "settings.fullBleedCameraBackground"
     }
 
     var selectedLayout: CameraLayout = .pip {
@@ -92,6 +94,16 @@ final class AppSettings {
         didSet { persist(videoResolution.rawValue, key: Keys.videoResolution) }
     }
 
+    /// Floating frosted top/bottom bars on the camera screen (new design).
+    var isFloatingCameraChromeEnabled: Bool = true {
+        didSet { persist(isFloatingCameraChromeEnabled, key: Keys.floatingCameraChrome) }
+    }
+
+    /// Edge-to-edge live preview instead of a black letterbox stage.
+    var isFullBleedCameraBackgroundEnabled: Bool = true {
+        didSet { persist(isFullBleedCameraBackgroundEnabled, key: Keys.fullBleedCameraBackground) }
+    }
+
     var videoExportConfiguration: VideoExportConfiguration {
         VideoExportConfiguration(
             codec: videoCodec,
@@ -142,6 +154,8 @@ final class AppSettings {
         videoCodec = VideoCodecOption(rawValue: defaults.string(forKey: Keys.videoCodec) ?? "") ?? .hevc
         videoContainer = VideoContainerOption(rawValue: defaults.string(forKey: Keys.videoContainer) ?? "") ?? .mov
         videoResolution = VideoResolutionOption(rawValue: defaults.string(forKey: Keys.videoResolution) ?? "") ?? .p1080
+        isFloatingCameraChromeEnabled = defaults.object(forKey: Keys.floatingCameraChrome) as? Bool ?? true
+        isFullBleedCameraBackgroundEnabled = defaults.object(forKey: Keys.fullBleedCameraBackground) as? Bool ?? true
     }
 
     func applyBorderPreset(_ style: BorderStyle) {

@@ -10,21 +10,27 @@ struct CameraView: View {
     @State private var overlayOffset: CGSize = .zero
     @State private var overlayDragStart: CGSize?
 
+    private var usesFloatingChrome: Bool {
+        viewModel.settings.isFloatingCameraChromeEnabled
+    }
+
+    private var usesFullBleedCameraBackground: Bool {
+        viewModel.settings.isFullBleedCameraBackgroundEnabled
+    }
+
     var body: some View {
         NavigationStack {
             GeometryReader { proxy in
                 ZStack {
                     Color.black.ignoresSafeArea()
 
-                    VStack(spacing: 0) {
-                        TopBarView(viewModel: viewModel)
-
-                        viewfinderSection
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        BottomBarView(viewModel: viewModel)
+                    if usesFloatingChrome {
+                        floatingChromeLayout
+                    } else if usesFullBleedCameraBackground {
+                        classicFullBleedChromeLayout
+                    } else {
+                        classicChromeLayout
                     }
-                    .ignoresSafeArea(edges: .bottom)
 
                     if viewModel.activeOverlay != .none {
                         Color.black.opacity(0.001)
@@ -73,14 +79,121 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(true)
+        .animation(.easeInOut(duration: 0.25), value: usesFloatingChrome)
+        .animation(.easeInOut(duration: 0.25), value: usesFullBleedCameraBackground)
     }
 
-    private var viewfinderSection: some View {
+    // MARK: - Layouts
+
+    private var floatingChromeLayout: some View {
+        ZStack {
+            viewfinderSection(fillBackground: usesFullBleedCameraBackground)
+
+            VStack(spacing: 0) {
+                TopBarView(viewModel: viewModel)
+                    .cameraFloatingPanel()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 13)
+
+                Spacer(minLength: 0)
+                    .allowsHitTesting(false)
+
+                BottomBarView(viewModel: viewModel)
+                    .cameraFloatingPanel()
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 50)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    /// Classic bars over an edge-to-edge camera stage (no black letterbox).
+    private var classicFullBleedChromeLayout: some View {
+        ZStack {
+            viewfinderSection(fillBackground: true)
+
+            VStack(spacing: 0) {
+                TopBarView(viewModel: viewModel)
+                    .background(
+                        LinearGradient(
+                            colors: [.black.opacity(0.55), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .padding(.top, 5)
+
+                Spacer(minLength: 0)
+                    .allowsHitTesting(false)
+
+                BottomBarView(viewModel: viewModel)
+                    .background(
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.7)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .padding(.bottom, 40)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private var classicChromeLayout: some View {
+        VStack(spacing: 0) {
+            TopBarView(viewModel: viewModel)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.55), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .padding(.top, 5)
+
+            viewfinderSection(fillBackground: false)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            BottomBarView(viewModel: viewModel)
+                .background(
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .padding(.bottom, 40)
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    /// Space reserved so Fit / framed ratios sit between floating chrome panels.
+    private var chromeTopInset: CGFloat { 72 }
+    private var chromeBottomInset: CGFloat { 200 }
+
+    /// Live capture stage: size always matches the selected ratio so preview = export framing.
+    /// Full-bleed background only expands **Fit** edge-to-edge; other modes keep a visible frame.
+    private func viewfinderSection(fillBackground: Bool) -> some View {
         GeometryReader { proxy in
-            let framedSize = aspectFittedSize(
-                in: proxy.size,
-                ratio: viewModel.selectedRatio.ratio
+            let ratio = viewModel.selectedRatio.ratio
+            let isFit = ratio == nil
+            let expandsUnderChrome = fillBackground && isFit && usesFloatingChrome
+            let topInset: CGFloat = {
+                guard usesFloatingChrome, !expandsUnderChrome else { return 0 }
+                return chromeTopInset
+            }()
+            let bottomInset: CGFloat = {
+                guard usesFloatingChrome, !expandsUnderChrome else { return 0 }
+                return chromeBottomInset
+            }()
+            let availableSize = CGSize(
+                width: proxy.size.width,
+                height: max(proxy.size.height - topInset - bottomInset, 1)
             )
+            let framedSize = (fillBackground && isFit)
+                ? availableSize
+                : aspectFittedSize(in: availableSize, ratio: ratio)
 
             ViewfinderView(viewModel: viewModel)
                 .frame(width: framedSize.width, height: framedSize.height)
@@ -89,16 +202,19 @@ struct CameraView: View {
                         .opacity(viewModel.shutterFlashOpacity)
                         .allowsHitTesting(false)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 0))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(Rectangle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
                 .background(Color.black)
+                .animation(.easeInOut(duration: 0.22), value: viewModel.selectedRatio)
         }
     }
 
     @ViewBuilder
     private func overlayPanel(in containerSize: CGSize) -> some View {
         VStack {
-            Spacer().frame(height: 64)
+            Spacer().frame(height: usesFloatingChrome ? 78 : 64)
 
             Group {
                 switch viewModel.activeOverlay {
@@ -172,4 +288,15 @@ struct CameraView: View {
 
 #Preview {
     CameraView()
+}
+
+private extension View {
+    /// Matches Settings section cards: frosted, rounded, floating over the stage.
+    func cameraFloatingPanel() -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+        )
+    }
 }

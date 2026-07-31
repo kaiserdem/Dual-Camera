@@ -24,15 +24,20 @@ private struct IdleTopBarView: View {
     @Bindable var viewModel: CameraViewModel
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 12) {
             Button {
                 viewModel.showSettings = true
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Color.white.opacity(0.12)))
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
 
-            Spacer()
+            Spacer(minLength: 8)
 
             overlayButton(
                 title: viewModel.selectedRatio.title,
@@ -52,10 +57,8 @@ private struct IdleTopBarView: View {
                 overlay: .more
             )
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(topBarBackground)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     private func overlayButton(title: String?, systemImage: String, overlay: ActiveOverlay) -> some View {
@@ -64,18 +67,25 @@ private struct IdleTopBarView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                 if let title {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(
                 Capsule()
-                    .fill(viewModel.activeOverlay == overlay ? Color.white.opacity(0.25) : Color.clear)
+                    .fill(viewModel.activeOverlay == overlay ? Color.white.opacity(0.22) : Color.white.opacity(0.12))
             )
+            .overlay {
+                if viewModel.activeOverlay == overlay {
+                    Capsule()
+                        .stroke(Color.yellow.opacity(0.75), lineWidth: 1.5)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -86,7 +96,7 @@ private struct RecordingTopBarView: View {
 
     var body: some View {
         HStack {
-            Spacer()
+            Spacer(minLength: 0)
 
             HStack(spacing: 8) {
                 Circle()
@@ -99,19 +109,16 @@ private struct RecordingTopBarView: View {
                     .foregroundStyle(.white)
                     .monospacedDigit()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.12))
+            )
 
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(topBarBackground)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
-}
-
-private var topBarBackground: some View {
-    LinearGradient(
-        colors: [.black.opacity(0.55), .clear],
-        startPoint: .top,
-        endPoint: .bottom
-    )
 }

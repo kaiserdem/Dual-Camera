@@ -20,7 +20,10 @@ enum CaptureMode: String, CaseIterable, Identifiable {
 }
 
 enum AspectRatio: String, CaseIterable, Identifiable {
+    /// Full sensor in the viewfinder frame (no side crop). Output matches on-screen proportions.
     case full
+    /// Stock-camera style: portrait 9:16 with aspect-fill.
+    case fill
     case square
     case fourThree
     case sixteenNine
@@ -29,20 +32,28 @@ enum AspectRatio: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .full: "Crop"
+        case .full: "Fit"
+        case .fill: "Full"
         case .square: "1:1"
         case .fourThree: "4:3"
         case .sixteenNine: "16:9"
         }
     }
 
+    /// Width / height for framed modes. `nil` = use the whole viewfinder (Fit).
     var ratio: CGFloat? {
         switch self {
         case .full: nil
+        case .fill: 9.0 / 16.0
         case .square: 1
         case .fourThree: 4.0 / 3.0
         case .sixteenNine: 16.0 / 9.0
         }
+    }
+
+    /// Preview / export should letterbox the sensor instead of cropping sides.
+    var prefersAspectFit: Bool {
+        self == .full
     }
 }
 

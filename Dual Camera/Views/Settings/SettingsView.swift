@@ -39,6 +39,8 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         dualMarkHeader
 
+                        appearanceCard
+
                         videoExportCard
 
                         actionsCard
@@ -155,6 +157,53 @@ struct SettingsView: View {
 
     private var exportSummary: String {
         "\(settings.videoResolution.title) · \(settings.videoCodec.subtitle) · \(settings.videoContainer.title)"
+    }
+
+    // MARK: - Appearance
+
+    private var appearanceCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(
+                title: "Appearance",
+                subtitle: "Camera screen look"
+            )
+
+            Toggle(isOn: $settings.isFloatingCameraChromeEnabled) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Floating panels")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Frosted top & bottom bars with edge insets")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+            }
+            .tint(.yellow)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.12))
+            )
+
+            Toggle(isOn: $settings.isFullBleedCameraBackgroundEnabled) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Camera background")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Fill the screen with live preview instead of black")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+            }
+            .tint(.yellow)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.12))
+            )
+        }
+        .padding(16)
+        .background(panelBackground)
     }
 
     // MARK: - Video export
