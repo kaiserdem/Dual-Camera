@@ -178,11 +178,13 @@ struct CameraView: View {
     }
     private var chromeBottomInset: CGFloat { 200 }
 
-    /// Live capture stage. All modes except Full pin to screen width; Full may letterbox sides (9:16).
+    /// Live capture stage.
+    /// Full sits edge-to-edge under floating chrome (Z-order below bars). Other modes unchanged.
     private func viewfinderSection() -> some View {
         GeometryReader { proxy in
-            let topInset: CGFloat = usesFloatingChrome ? chromeTopInset : 0
-            let bottomInset: CGFloat = usesFloatingChrome ? chromeBottomInset : 0
+            let isFull = viewModel.selectedRatio == .fill
+            let topInset: CGFloat = (usesFloatingChrome && !isFull) ? chromeTopInset : 0
+            let bottomInset: CGFloat = (usesFloatingChrome && !isFull) ? chromeBottomInset : 0
             let availableSize = CGSize(
                 width: proxy.size.width,
                 height: max(proxy.size.height - topInset - bottomInset, 1)
@@ -208,13 +210,14 @@ struct CameraView: View {
         }
     }
 
-    /// Full (9:16) may shrink width; Fit / 1:1 / 4:3 / 16:9 always use the full stage width.
+    /// Full pins to stage width (under bars). Fit / 1:1 / 4:3 / 16:9 keep existing framing.
     private func captureFrameSize(in available: CGSize, for aspect: AspectRatio) -> CGSize {
         switch aspect {
         case .full:
             return available
         case .fill:
-            return aspectFittedSize(in: available, ratio: aspect.ratio)
+            // Edge-to-edge width under top/bottom chrome (no 9:16 side letterbox on preview).
+            return available
         case .square, .fourThree, .sixteenNine:
             guard let ratio = aspect.ratio else { return available }
             let width = available.width

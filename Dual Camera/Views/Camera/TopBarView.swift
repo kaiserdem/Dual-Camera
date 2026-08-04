@@ -91,19 +91,19 @@ private struct IdleTopBarView: View {
     @Bindable var viewModel: CameraViewModel
     var onCollapse: () -> Void
 
+    private let controlHeight: CGFloat = 40
+
     var body: some View {
         HStack(spacing: 12) {
-            Button {
-                viewModel.showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+            Button(action: onCollapse) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: controlHeight, height: controlHeight)
                     .background(Circle().fill(Color.white.opacity(0.12)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Settings")
+            .accessibilityLabel("Hide top bar")
 
             Spacer(minLength: 8)
 
@@ -125,15 +125,17 @@ private struct IdleTopBarView: View {
                 overlay: .more
             )
 
-            Button(action: onCollapse) {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: 36, height: 40)
+            Button {
+                viewModel.showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: controlHeight, height: controlHeight)
                     .background(Circle().fill(Color.white.opacity(0.12)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Hide top bar")
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -153,7 +155,7 @@ private struct IdleTopBarView: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .frame(height: controlHeight)
             .background(
                 Capsule()
                     .fill(viewModel.activeOverlay == overlay ? Color.white.opacity(0.22) : Color.white.opacity(0.12))
