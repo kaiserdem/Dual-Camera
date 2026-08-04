@@ -20,7 +20,7 @@ final class CameraManager: NSObject {
     private(set) var isRecording = false
     private(set) var isRecordingPaused = false
     private(set) var lastCapturedImage: UIImage?
-    /// Bumps each time a dual photo is ready — drives gallery capture feedback.
+    /// Bumps each time a photo or video is ready — drives gallery capture feedback.
     private(set) var photoCaptureCount = 0
     private(set) var isMultiCamAvailable = MultiCamSupport.isSupported
     private(set) var isPrimaryBack = true
@@ -654,14 +654,38 @@ final class CameraManager: NSObject {
     }
 
     private func saveVideoToPhotos(_ url: URL) {
+        // Thumbnail + gallery pulse before the temp file is removed.
+        let thumbnail = Self.makeVideoThumbnail(from: url)
+        Task { @MainActor in
+            if let thumbnail {
+                self.lastCapturedImage = thumbnail
+                self.photoCaptureCount += 1
+            }
+        }
+
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else { return }
+            guard status == .authorized || status == .limited else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
             PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
             } completionHandler: { _, _ in
                 try? FileManager.default.removeItem(at: url)
             }
         }
+    }
+
+    private static func makeVideoThumbnail(from url: URL) -> UIImage? {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 240, height: 240)
+        let time = CMTime(seconds: 0.05, preferredTimescale: 600)
+        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 
