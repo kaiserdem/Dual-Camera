@@ -39,8 +39,8 @@ struct CaptureLayoutContext: @unchecked Sendable {
     }
 
     /// Maps on-screen PiP into the encoder frame.
-    /// Uses independent X/Y scales so the 16pt edge insets stay correct when
-    /// Fit export aspect (device screen) differs from the chrome-inset viewfinder.
+    /// Independent X/Y scales preserve edge insets when source and output aspects match
+    /// (same result as uniform scale) and stay correct if they differ slightly after even rounding.
     func pipRect(in outputSize: CGSize) -> CGRect {
         let source = viewfinderSize.width > 1 ? viewfinderSize : outputSize
         let scaleX = outputSize.width / max(source.width, 1)
@@ -68,14 +68,17 @@ struct CaptureLayoutContext: @unchecked Sendable {
     }
 
     /// Encoder frame size matching the selected ratio.
-    /// Fit uses the **device screen** aspect (not the chrome-inset viewfinder): exporting the
-    /// shorter stage made a wider file that fullscreen players side-crop, eating PiP's right inset.
+    /// Fit uses the on-screen viewfinder aspect so cropping matches preview.
     /// Full uses portrait 9:16 like the stock Camera app.
     func videoFrameSize(maxLongEdge: CGFloat = 1920) -> CGSize {
         let aspect: CGFloat
         switch aspectRatio {
         case .full:
-            aspect = Self.fitExportAspect(viewfinderSize: viewfinderSize)
+            if viewfinderSize.width > 1, viewfinderSize.height > 1 {
+                aspect = viewfinderSize.width / viewfinderSize.height
+            } else {
+                aspect = 9.0 / 16.0
+            }
         case .fill:
             aspect = 9.0 / 16.0
         case .square, .fourThree, .sixteenNine:
@@ -98,20 +101,6 @@ struct CaptureLayoutContext: @unchecked Sendable {
         }
 
         return Self.evenEncoderSize(raw)
-    }
-
-    /// Portrait width/height of the device display — matches typical fullscreen playback.
-    private static func fitExportAspect(viewfinderSize: CGSize) -> CGFloat {
-        let screen = UIScreen.main.bounds.size
-        let portraitWidth = min(screen.width, screen.height)
-        let portraitHeight = max(screen.width, screen.height)
-        if portraitWidth > 1, portraitHeight > 1 {
-            return portraitWidth / portraitHeight
-        }
-        if viewfinderSize.width > 1, viewfinderSize.height > 1 {
-            return viewfinderSize.width / viewfinderSize.height
-        }
-        return 9.0 / 16.0
     }
 
     /// Fit / fixed ratios fill the frame. Only Full may letterbox on the sides.
