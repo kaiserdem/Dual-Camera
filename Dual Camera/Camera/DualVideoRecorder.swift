@@ -447,6 +447,7 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
             writer.startSession(atSourceTime: startTime)
             isSessionStarted = true
             VideoDebugLog.log("startSession at \(CMTimeGetSeconds(startTime)) (dual cameras primed)")
+            VideoDebugLog.log("FIRST FRAME encoded — UI may have looked 'recording' earlier")
         }
 
         guard writer.status == .writing else {

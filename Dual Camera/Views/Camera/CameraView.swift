@@ -9,6 +9,7 @@ struct CameraView: View {
     @State private var viewModel = CameraViewModel()
     @State private var overlayOffset: CGSize = .zero
     @State private var overlayDragStart: CGSize?
+    @Environment(\.scenePhase) private var scenePhase
 
     private var usesFloatingChrome: Bool {
         viewModel.settings.isFloatingCameraChromeEnabled
@@ -53,6 +54,9 @@ struct CameraView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                viewModel.handleScenePhase(newPhase)
+            }
             .onChange(of: viewModel.isRecording) { _, isRecording in
                 viewModel.syncRecordingTimer(isRecording: isRecording)
                 if isRecording {
@@ -63,6 +67,11 @@ struct CameraView: View {
             .onChange(of: viewModel.photoCaptureCount) { _, count in
                 guard count > 0 else { return }
                 viewModel.triggerGalleryCapturePulse()
+            }
+            .onChange(of: viewModel.isFlashControlAvailable) { _, available in
+                if !available {
+                    viewModel.syncFlashHardware()
+                }
             }
             .alert(
                 "Camera Unavailable",

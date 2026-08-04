@@ -17,17 +17,25 @@ final class CameraViewModel {
     let settings = AppSettings()
     let motionManager = MotionManager()
 
-    var captureMode: CaptureMode = .photo
+    var captureMode: CaptureMode = .photo {
+        didSet {
+            guard oldValue != captureMode else { return }
+            syncFlashHardware()
+        }
+    }
     var activeOverlay: ActiveOverlay = .none
     var selectedZoom: ZoomLevel = .one
     var isGridEnabled = false
     var isLevelerEnabled = false {
         didSet { motionManager.isActive = isLevelerEnabled }
     }
-    var isFlashEnabled = false {
-        didSet {
-            cameraManager.flashMode = isFlashEnabled ? .on : .off
-            cameraManager.setTorchEnabled(isFlashEnabled && captureMode == .video)
+    /// Photo: Off → On → Auto. Video torch: Off ↔ On (Auto is ignored for torch).
+    var flashMode: FlashModeOption {
+        get { settings.flashMode }
+        set {
+            guard settings.flashMode != newValue else { return }
+            settings.flashMode = newValue
+            syncFlashHardware()
         }
     }
     /// Frozen while recording so export matches the layout captured at start.
@@ -152,6 +160,10 @@ final class CameraViewModel {
     var isSessionRunning: Bool { cameraManager.isSessionRunning }
     var isRecording: Bool { cameraManager.isRecording }
     var isRecordingPaused: Bool { cameraManager.isRecordingPaused }
+    /// Flash (photo) or torch (video) chip — only when the active back camera supports it.
+    var isFlashControlAvailable: Bool {
+        captureMode == .video ? cameraManager.isTorchAvailable : cameraManager.isFlashAvailable
+    }
     var recordingElapsed: TimeInterval = 0
     var lastCapturedImage: UIImage? { cameraManager.lastCapturedImage }
     var photoCaptureCount: Int { cameraManager.photoCaptureCount }
@@ -184,14 +196,79 @@ final class CameraViewModel {
 
     func onAppear() {
         cameraManager.prepare()
+        syncFlashHardware()
     }
 
     func onDisappear() {
+        stopRecordingIfNeeded()
         stopRecordingTimer()
         galleryThumbnailResetTask?.cancel()
         galleryThumbnailResetTask = nil
+        // Never leave the torch on when leaving the camera screen.
+        cameraManager.setTorchEnabled(false)
         cameraManager.stopSession()
         motionManager.isActive = false
+    }
+
+    /// App background / multitasking — finalize recording instead of leaving a hung capture.
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            VideoDebugLog.log("scenePhase.background — stop recording if needed")
+            stopRecordingIfNeeded()
+            cameraManager.setTorchEnabled(false)
+        case .active:
+            cameraManager.prepare()
+            syncFlashHardware()
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func stopRecordingIfNeeded() {
+        guard isRecording else { return }
+        VideoDebugLog.log("stopRecordingIfNeeded — finalizing take")
+        cameraManager.stopRecording()
+        stopRecordingTimer()
+    }
+
+    /// Photo: Off → On → Auto. Video: Off ↔ On (continuous torch).
+    func cycleFlashMode() {
+        guard isFlashControlAvailable else { return }
+        switch captureMode {
+        case .photo:
+            switch flashMode {
+            case .off: flashMode = .on
+            case .on: flashMode = .auto
+            case .auto: flashMode = .off
+            }
+        case .video:
+            flashMode = flashMode == .off ? .on : .off
+        }
+    }
+
+    /// Photo uses still flash at capture; video uses continuous torch — only while Video + On.
+    func syncFlashHardware() {
+        if !isFlashControlAvailable {
+            cameraManager.flashMode = .off
+            cameraManager.setTorchEnabled(false)
+            if flashMode != .off {
+                flashMode = .off
+            }
+            return
+        }
+
+        let modeForCapture: FlashModeOption
+        if captureMode == .video, flashMode == .auto {
+            // Torch has no Auto — treat leftover Auto from Photo as Off until user cycles.
+            modeForCapture = .off
+        } else {
+            modeForCapture = flashMode
+        }
+        cameraManager.flashMode = modeForCapture
+        cameraManager.setTorchEnabled(captureMode == .video && modeForCapture == .on)
     }
 
     func toggleOverlay(_ overlay: ActiveOverlay) {
@@ -217,6 +294,10 @@ final class CameraViewModel {
 
     func handleShutter() {
         let layout = makeCaptureLayoutContext()
+        VideoDebugLog.log(
+            "ViewModel.handleShutter mode=\(captureMode.rawValue) isRecording=\(isRecording) " +
+            "viewfinder=\(Int(layout.viewfinderSize.width))x\(Int(layout.viewfinderSize.height))"
+        )
         switch captureMode {
         case .photo:
             triggerShutterFlash()
@@ -261,7 +342,11 @@ final class CameraViewModel {
     }
 
     func toggleRecordingPause() {
-        guard isRecording else { return }
+        guard isRecording else {
+            VideoDebugLog.log("ViewModel.toggleRecordingPause IGNORED — not recording")
+            return
+        }
+        VideoDebugLog.log("ViewModel.toggleRecordingPause -> \(isRecordingPaused ? "resume" : "pause")")
         if isRecordingPaused {
             cameraManager.resumeRecording()
             resumeRecordingTimer()

@@ -27,6 +27,7 @@ final class AppSettings {
         static let videoResolution = "settings.videoResolution"
         static let floatingCameraChrome = "settings.floatingCameraChrome"
         static let fullBleedCameraBackground = "settings.fullBleedCameraBackground"
+        static let flashMode = "settings.flashMode"
     }
 
     var selectedLayout: CameraLayout = .pip {
@@ -104,6 +105,11 @@ final class AppSettings {
         didSet { persist(isFullBleedCameraBackgroundEnabled, key: Keys.fullBleedCameraBackground) }
     }
 
+    /// Last flash (photo) / torch (video) mode. Restored across launches.
+    var flashMode: FlashModeOption = .off {
+        didSet { persist(flashMode.rawValue, key: Keys.flashMode) }
+    }
+
     var videoExportConfiguration: VideoExportConfiguration {
         VideoExportConfiguration(
             codec: videoCodec,
@@ -156,6 +162,7 @@ final class AppSettings {
         videoResolution = VideoResolutionOption(rawValue: defaults.string(forKey: Keys.videoResolution) ?? "") ?? .p1080
         isFloatingCameraChromeEnabled = defaults.object(forKey: Keys.floatingCameraChrome) as? Bool ?? true
         isFullBleedCameraBackgroundEnabled = defaults.object(forKey: Keys.fullBleedCameraBackground) as? Bool ?? true
+        flashMode = FlashModeOption(rawValue: defaults.string(forKey: Keys.flashMode) ?? "") ?? .off
     }
 
     func applyBorderPreset(_ style: BorderStyle) {

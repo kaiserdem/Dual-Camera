@@ -25,9 +25,18 @@ final class CameraManager: NSObject {
     private(set) var isMultiCamAvailable = MultiCamSupport.isSupported
     private(set) var isPrimaryBack = true
     private(set) var hasUltraWide = false
+    /// Back camera still-flash support (front typically has none).
+    private(set) var isFlashAvailable = false
+    /// Back camera continuous torch support.
+    private(set) var isTorchAvailable = false
 
     var errorMessage: String?
     var flashMode: FlashModeOption = .off
+
+    /// Currently connected back camera (wide or ultra-wide).
+    private var activeBackDevice: AVCaptureDevice? {
+        backCameraInput?.device ?? backDevice
+    }
 
     private let sessionQueue = DispatchQueue(label: "com.dualcamera.session")
     private let backPhotoOutput = AVCapturePhotoOutput()
@@ -59,13 +68,16 @@ final class CameraManager: NSObject {
         videoEngine.onRecordingFinished = { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
+                VideoDebugLog.log("CameraManager.onRecordingFinished received")
                 self.isRecording = false
                 switch result {
                 case .success(let url):
                     self.isRecordingPaused = false
+                    VideoDebugLog.log("CameraManager UI flag isRecording=false (save begins)")
                     self.saveVideoToPhotos(url)
                 case .failure(let error):
                     self.isRecordingPaused = false
+                    VideoDebugLog.log("CameraManager recording FAILED \(error.localizedDescription)")
                     self.errorMessage = error.localizedDescription
                 }
             }
@@ -158,16 +170,33 @@ final class CameraManager: NSObject {
 
     func setTorchEnabled(_ enabled: Bool) {
         sessionQueue.async { [weak self] in
-            guard let device = self?.backDevice, device.hasTorch else { return }
+            guard let self,
+                  let device = self.activeBackDevice,
+                  device.hasTorch,
+                  device.isTorchModeSupported(enabled ? .on : .off) else { return }
             do {
                 try device.lockForConfiguration()
-                device.torchMode = enabled ? .on : .off
+                if enabled, device.isTorchAvailable {
+                    device.torchMode = .on
+                } else {
+                    device.torchMode = .off
+                }
                 device.unlockForConfiguration()
             } catch {
                 Task { @MainActor in
-                    self?.errorMessage = "Unable to change torch: \(error.localizedDescription)"
+                    self.errorMessage = "Unable to change torch: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    private func refreshLightCapabilities() {
+        let device = activeBackDevice
+        let flash = (device?.hasFlash ?? false) && (device?.isFlashAvailable ?? false)
+        let torch = (device?.hasTorch ?? false) && (device?.isTorchAvailable ?? false)
+        Task { @MainActor in
+            self.isFlashAvailable = flash
+            self.isTorchAvailable = torch
         }
     }
 
@@ -211,6 +240,7 @@ final class CameraManager: NSObject {
     }
 
     func toggleRecording(layout: CaptureLayoutContext, export: VideoExportConfiguration) {
+        VideoDebugLog.log("CameraManager.toggleRecording isRecording=\(isRecording)")
         if isRecording {
             stopRecording()
         } else {
@@ -231,10 +261,12 @@ final class CameraManager: NSObject {
         }
         isRecording = true
         isRecordingPaused = false
+        VideoDebugLog.log("CameraManager UI flag isRecording=true (engine start still queued)")
         videoEngine.updatePrimaryBack(isPrimaryBack)
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            VideoDebugLog.log("CameraManager sessionQueue: begin engine.startRecording")
             do {
                 try self.videoEngine.startRecording(layout: layout, export: export)
                 VideoDebugLog.log("CameraManager.startRecording engine started")
@@ -250,17 +282,31 @@ final class CameraManager: NSObject {
     }
 
     func pauseRecording() {
-        guard isRecording, !isRecordingPaused else { return }
+        guard isRecording, !isRecordingPaused else {
+            VideoDebugLog.log(
+                "CameraManager.pauseRecording IGNORED isRecording=\(isRecording) isPaused=\(isRecordingPaused)"
+            )
+            return
+        }
         isRecordingPaused = true
+        VideoDebugLog.log("CameraManager UI flag isPaused=true (engine pause queued)")
         sessionQueue.async { [weak self] in
+            VideoDebugLog.log("CameraManager sessionQueue: begin engine.pauseRecording")
             self?.videoEngine.pauseRecording()
         }
     }
 
     func resumeRecording() {
-        guard isRecording, isRecordingPaused else { return }
+        guard isRecording, isRecordingPaused else {
+            VideoDebugLog.log(
+                "CameraManager.resumeRecording IGNORED isRecording=\(isRecording) isPaused=\(isRecordingPaused)"
+            )
+            return
+        }
         isRecordingPaused = false
+        VideoDebugLog.log("CameraManager UI flag isPaused=false (engine resume queued)")
         sessionQueue.async { [weak self] in
+            VideoDebugLog.log("CameraManager sessionQueue: begin engine.resumeRecording")
             self?.videoEngine.resumeRecording()
         }
     }
@@ -269,7 +315,9 @@ final class CameraManager: NSObject {
         VideoDebugLog.log("CameraManager.stopRecording isRecording=\(isRecording)")
         guard isRecording else { return }
         isRecordingPaused = false
+        VideoDebugLog.log("CameraManager stop queued (isRecording stays true until finish callback)")
         sessionQueue.async { [weak self] in
+            VideoDebugLog.log("CameraManager sessionQueue: begin engine.stopRecording")
             self?.videoEngine.stopRecording()
         }
     }
@@ -286,6 +334,7 @@ final class CameraManager: NSObject {
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
+                self.refreshLightCapabilities()
                 Task { @MainActor in
                     self.isConfigured = true
                     self.isSessionRunning = true
@@ -546,7 +595,9 @@ final class CameraManager: NSObject {
 
             reconnectOutputs(to: port)
             configurePhotoOutputQuality(backPhotoOutput)
-            applyZoom(on: device, factor: max(preferredZoom, 1.0))
+            // Instant settle after device switch — preview already interrupted by reconfigure.
+            applyZoom(on: device, factor: max(preferredZoom, 1.0), animated: false)
+            refreshLightCapabilities()
         } catch {
             Task { @MainActor in
                 self.errorMessage = error.localizedDescription
@@ -566,11 +617,20 @@ final class CameraManager: NSObject {
         videoEngine.reconnectBack(port: port, session: session)
     }
 
-    private func applyZoom(on device: AVCaptureDevice, factor: CGFloat) {
+    private func applyZoom(on device: AVCaptureDevice, factor: CGFloat, animated: Bool = true) {
         do {
             try device.lockForConfiguration()
             let maxZoom = min(device.activeFormat.videoMaxZoomFactor, 10)
-            device.videoZoomFactor = min(max(factor, 1.0), maxZoom)
+            let target = min(max(factor, 1.0), maxZoom)
+            if animated, abs(device.videoZoomFactor - target) > 0.01 {
+                if device.isRampingVideoZoom {
+                    device.cancelVideoZoomRamp()
+                }
+                // Zoom factors per second — ~4 feels smooth for 1x ↔ 2x.
+                device.ramp(toVideoZoomFactor: target, withRate: 4.0)
+            } else {
+                device.videoZoomFactor = target
+            }
             device.unlockForConfiguration()
         } catch {
             Task { @MainActor in

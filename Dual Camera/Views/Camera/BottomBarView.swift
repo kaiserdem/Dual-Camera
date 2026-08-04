@@ -83,6 +83,8 @@ struct BottomBarView: View {
 
     private var pauseButton: some View {
         Button {
+            VideoDebugLog.markTap(viewModel.isRecordingPaused ? "UI.resumeButton" : "UI.pauseButton")
+            VideoDebugLog.log("BottomBar pause/resume tapped isPaused=\(viewModel.isRecordingPaused)")
             viewModel.toggleRecordingPause()
         } label: {
             Image(systemName: viewModel.isRecordingPaused ? "play.fill" : "pause.fill")
@@ -97,6 +99,18 @@ struct BottomBarView: View {
 
     private var shutterButton: some View {
         Button {
+            let action: String
+            if viewModel.captureMode == .photo {
+                action = "UI.shutterPhoto"
+            } else if viewModel.isRecording {
+                action = "UI.shutterStop"
+            } else {
+                action = "UI.shutterStart"
+            }
+            VideoDebugLog.markTap(action)
+            VideoDebugLog.log(
+                "BottomBar shutter tapped mode=\(viewModel.captureMode.rawValue) isRecording=\(viewModel.isRecording)"
+            )
             viewModel.handleShutter()
         } label: {
             ZStack {
