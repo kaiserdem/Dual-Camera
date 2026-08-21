@@ -27,6 +27,7 @@ nonisolated final class DualVideoEngine: NSObject, @unchecked Sendable {
     private var receivedFrontFrames = 0
     private var receivedAudioBuffers = 0
     private var droppedCopyFailures = 0
+    private var droppedFrameCount = 0
 
     var onRecordingFinished: ((Result<URL, Error>) -> Void)?
 
@@ -140,6 +141,7 @@ nonisolated final class DualVideoEngine: NSObject, @unchecked Sendable {
         receivedFrontFrames = 0
         receivedAudioBuffers = 0
         droppedCopyFailures = 0
+        droppedFrameCount = 0
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -320,6 +322,13 @@ extension DualVideoEngine: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptu
         from connection: AVCaptureConnection
     ) {
         let isBack = output === backVideoOutput
-        VideoDebugLog.log("DROPPED \(isBack ? "back" : "front") frame")
+        stateLock.lock()
+        droppedFrameCount += 1
+        let count = droppedFrameCount
+        stateLock.unlock()
+        // Spam only early / periodically — DualWide zoom can drop many frames briefly.
+        if count <= 5 || count % 60 == 0 {
+            VideoDebugLog.log("DROPPED \(isBack ? "back" : "front") frame #\(count)")
+        }
     }
 }

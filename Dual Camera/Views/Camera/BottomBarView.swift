@@ -30,21 +30,32 @@ struct BottomBarView: View {
     }
 
     private var zoomSelector: some View {
-        HStack(spacing: 10) {
+        let isEnabled = viewModel.isZoomControlEnabled
+        return HStack(spacing: 10) {
             ForEach(ZoomLevel.allCases) { level in
+                let isSelected = viewModel.selectedZoom == level
                 Button {
                     viewModel.selectZoom(level)
                 } label: {
                     Text(level.title)
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(viewModel.selectedZoom == level ? .black : .white)
+                        .foregroundStyle(
+                            isEnabled
+                                ? (isSelected ? .black : .white)
+                                : .white.opacity(0.35)
+                        )
                         .frame(width: 36, height: 36)
                         .background(
                             Circle()
-                                .fill(viewModel.selectedZoom == level ? Color.yellow : Color.white.opacity(0.12))
+                                .fill(
+                                    isEnabled
+                                        ? (isSelected ? Color.yellow : Color.white.opacity(0.12))
+                                        : Color.white.opacity(0.06)
+                                )
                         )
                 }
                 .buttonStyle(.plain)
+                .disabled(!isEnabled)
             }
         }
     }

@@ -12,11 +12,11 @@ struct CameraView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var usesFloatingChrome: Bool {
-        viewModel.settings.isFloatingCameraChromeEnabled
+        viewModel.effectiveFloatingChrome
     }
 
     private var usesFullBleedCameraBackground: Bool {
-        viewModel.settings.isFullBleedCameraBackgroundEnabled
+        viewModel.effectiveFullBleedBackground
     }
 
     var body: some View {
@@ -53,6 +53,13 @@ struct CameraView: View {
             }
             .onDisappear {
                 viewModel.onDisappear()
+            }
+            .onChange(of: viewModel.showSettings) { _, isShowing in
+                if isShowing {
+                    viewModel.onSettingsOpened()
+                } else {
+                    viewModel.onSettingsClosed()
+                }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 viewModel.handleScenePhase(newPhase)
@@ -106,7 +113,7 @@ struct CameraView: View {
                         isCollapsed: viewModel.isTopBarCollapsed && !viewModel.isRecording
                     ))
                     .padding(.horizontal, 16)
-                    .padding(.top, 13)
+                    .padding(.top, 8)
 
                 Spacer(minLength: 0)
                     .allowsHitTesting(false)
@@ -114,7 +121,7 @@ struct CameraView: View {
                 BottomBarView(viewModel: viewModel)
                     .cameraFloatingPanel()
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 50)
+                    .padding(.bottom, 40)
             }
             .ignoresSafeArea(edges: .bottom)
         }
@@ -134,7 +141,7 @@ struct CameraView: View {
                             endPoint: .bottom
                         )
                     )
-                    .padding(.top, 5)
+                    .padding(.top, 0)
 
                 Spacer(minLength: 0)
                     .allowsHitTesting(false)
@@ -147,7 +154,7 @@ struct CameraView: View {
                             endPoint: .bottom
                         )
                     )
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 35)
             }
             .ignoresSafeArea(edges: .bottom)
         }
@@ -163,7 +170,7 @@ struct CameraView: View {
                         endPoint: .bottom
                     )
                 )
-                .padding(.top, 5)
+                .padding(.top, 0)
 
             viewfinderSection()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,7 +183,7 @@ struct CameraView: View {
                         endPoint: .bottom
                     )
                 )
-                .padding(.bottom, 40)
+                .padding(.bottom, 35)
         }
         .ignoresSafeArea(edges: .bottom)
     }

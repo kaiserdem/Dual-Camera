@@ -49,8 +49,33 @@ final class CameraViewModel {
     }
     var viewfinderSize: CGSize = .zero
     var showSettings = false
+    /// While Settings is open, layout chrome reads this snapshot instead of live `settings`
+    /// so toggles do not rebuild the camera preview under the navigation stack.
+    private var frozenAppearance: (floatingChrome: Bool, fullBleedBackground: Bool)?
     /// Idle top chrome tucked away — only a restore pill remains.
     var isTopBarCollapsed = false
+
+    var effectiveFloatingChrome: Bool {
+        frozenAppearance?.floatingChrome ?? settings.isFloatingCameraChromeEnabled
+    }
+
+    var effectiveFullBleedBackground: Bool {
+        frozenAppearance?.fullBleedBackground ?? settings.isFullBleedCameraBackgroundEnabled
+    }
+
+    func onSettingsOpened() {
+        frozenAppearance = (
+            floatingChrome: settings.isFloatingCameraChromeEnabled,
+            fullBleedBackground: settings.isFullBleedCameraBackgroundEnabled
+        )
+    }
+
+    func onSettingsClosed() {
+        frozenAppearance = nil
+        cameraManager.prepare()
+        syncFlashHardware()
+        motionManager.isActive = isLevelerEnabled
+    }
 
     /// Layout / PiP / split / ratio edits are locked for the duration of a take.
     var isLayoutLocked: Bool { isRecording }
@@ -158,6 +183,8 @@ final class CameraViewModel {
 
     var isMultiCamAvailable: Bool { cameraManager.isMultiCamAvailable }
     var isSessionRunning: Bool { cameraManager.isSessionRunning }
+    /// Zoom chips — only after the capture session is live.
+    var isZoomControlEnabled: Bool { isSessionRunning }
     var isRecording: Bool { cameraManager.isRecording }
     var isRecordingPaused: Bool { cameraManager.isRecordingPaused }
     /// Flash (photo) or torch (video) chip — only when the active back camera supports it.
@@ -197,29 +224,33 @@ final class CameraViewModel {
     func onAppear() {
         cameraManager.prepare()
         syncFlashHardware()
+        motionManager.isActive = isLevelerEnabled
     }
 
+    /// Covered by another screen in the same stack (e.g. Settings) — keep the capture session alive.
     func onDisappear() {
         stopRecordingIfNeeded()
         stopRecordingTimer()
         galleryThumbnailResetTask?.cancel()
         galleryThumbnailResetTask = nil
-        // Never leave the torch on when leaving the camera screen.
         cameraManager.setTorchEnabled(false)
-        cameraManager.stopSession()
         motionManager.isActive = false
     }
 
-    /// App background / multitasking — finalize recording instead of leaving a hung capture.
+    /// App background / multitasking — finalize recording and release the camera.
     func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .background:
-            VideoDebugLog.log("scenePhase.background — stop recording if needed")
+            VideoDebugLog.log("scenePhase.background — stop recording and session")
             stopRecordingIfNeeded()
+            stopRecordingTimer()
             cameraManager.setTorchEnabled(false)
+            cameraManager.stopSession()
+            motionManager.isActive = false
         case .active:
             cameraManager.prepare()
             syncFlashHardware()
+            motionManager.isActive = isLevelerEnabled
         case .inactive:
             break
         @unknown default:
@@ -288,6 +319,7 @@ final class CameraViewModel {
     }
 
     func selectZoom(_ level: ZoomLevel) {
+        guard isZoomControlEnabled else { return }
         selectedZoom = level
         cameraManager.setZoom(level)
     }

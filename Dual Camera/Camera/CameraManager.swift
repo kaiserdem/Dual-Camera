@@ -25,6 +25,8 @@ final class CameraManager: NSObject {
     private(set) var isMultiCamAvailable = MultiCamSupport.isSupported
     private(set) var isPrimaryBack = true
     private(set) var hasUltraWide = false
+    /// True when back input is DualWide/Triple — 0.5× via zoom ramp, not input swap.
+    private(set) var usesVirtualBackZoom = false
     /// Back camera still-flash support (front typically has none).
     private(set) var isFlashAvailable = false
     /// Back camera continuous torch support.
@@ -33,7 +35,7 @@ final class CameraManager: NSObject {
     var errorMessage: String?
     var flashMode: FlashModeOption = .off
 
-    /// Currently connected back camera (wide or ultra-wide).
+    /// Currently connected back camera (wide, ultra-wide, or virtual Dual/Triple).
     private var activeBackDevice: AVCaptureDevice? {
         backCameraInput?.device ?? backDevice
     }
@@ -46,8 +48,11 @@ final class CameraManager: NSObject {
     private var backCameraInput: AVCaptureDeviceInput?
     private var frontCameraInput: AVCaptureDeviceInput?
     private var microphoneInput: AVCaptureDeviceInput?
+    /// Preferred non-virtual wide (fallback zoom / switch target).
     private var backDevice: AVCaptureDevice?
     private var ultraWideDevice: AVCaptureDevice?
+    /// Last zoom level requested from UI; applied after configure and on each setZoom.
+    private var pendingZoomLevel: ZoomLevel = .one
 
     private var dualPhotoDelegates: [PhotoCaptureDelegate] = []
     private var activeLayoutContext: CaptureLayoutContext?
@@ -148,23 +153,42 @@ final class CameraManager: NSObject {
     func setZoom(_ level: ZoomLevel) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            self.pendingZoomLevel = level
+            self.applyPendingZoom()
+        }
+    }
 
-            if level == .half, let ultraWide = self.ultraWideDevice, self.hasUltraWide {
-                self.switchBackCamera(to: ultraWide, preferredZoom: 1.0)
-                return
-            }
+    private func applyPendingZoom(animated: Bool = true) {
+        let level = pendingZoomLevel
 
-            guard let device = self.backDevice else { return }
-            if level == .half && !self.hasUltraWide {
-                self.applyZoom(on: device, factor: 1.0)
-                return
-            }
+        // Virtual DualWide/Triple: one input, smooth lens switch via zoom factor.
+        if usesVirtualBackZoom, let device = activeBackDevice {
+            let factor = videoZoomFactor(for: level, on: device)
+            VideoDebugLog.log(
+                "zoom virtual \(level.title) → factor=\(factor) " +
+                "min=\(device.minAvailableVideoZoomFactor) " +
+                "switchOver=\(device.virtualDeviceSwitchOverVideoZoomFactors)"
+            )
+            applyZoom(on: device, factor: factor, animated: animated)
+            return
+        }
 
-            if self.backCameraInput?.device !== device {
-                self.switchBackCamera(to: device, preferredZoom: level.factor)
-            } else {
-                self.applyZoom(on: device, factor: max(level.factor, 1.0))
-            }
+        // Fallback: Ultra Wide is a separate device — must swap inputs (brief black frame).
+        if level == .half, let ultraWide = ultraWideDevice, hasUltraWide {
+            switchBackCamera(to: ultraWide, preferredZoom: 1.0)
+            return
+        }
+
+        guard let device = backDevice else { return }
+        if level == .half && !hasUltraWide {
+            applyZoom(on: device, factor: 1.0, animated: animated)
+            return
+        }
+
+        if backCameraInput?.device !== device {
+            switchBackCamera(to: device, preferredZoom: level.factor)
+        } else {
+            applyZoom(on: device, factor: max(level.factor, 1.0), animated: animated)
         }
     }
 
@@ -357,16 +381,26 @@ final class CameraManager: NSObject {
 
         session.sessionPreset = .inputPriority
 
-        guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            throw CameraError.cameraUnavailable("back")
-        }
         guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
             throw CameraError.cameraUnavailable("front")
         }
 
-        backDevice = backCamera
+        let backCamera = try resolveBackCamera(front: frontCamera)
+        let wideFallback = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        backDevice = usesVirtualBackZoom ? backCamera : (wideFallback ?? backCamera)
         ultraWideDevice = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
-        hasUltraWide = ultraWideDevice != nil
+        // Virtual Dual/Triple already covers ultra-wide FOV via zoom.
+        hasUltraWide = usesVirtualBackZoom
+            || ultraWideDevice != nil
+            || (backCamera.isVirtualDevice && backCamera.constituentDevices.contains {
+                $0.deviceType == .builtInUltraWideCamera
+            })
+
+        logMultiCamDeviceSets()
+        VideoDebugLog.log(
+            "back=\(backCamera.deviceType.rawValue) virtual=\(backCamera.isVirtualDevice) " +
+            "usesVirtualBackZoom=\(usesVirtualBackZoom) hasUltraWide=\(hasUltraWide)"
+        )
 
         // Prefer Full HD multi-cam formats; fall back only if session cost is too high.
         try configureMultiCamFormat(for: backCamera, preferLowerCost: false)
@@ -376,6 +410,24 @@ final class CameraManager: NSObject {
         let frontInput = try AVCaptureDeviceInput(device: frontCamera)
 
         guard session.canAddInput(backInput), session.canAddInput(frontInput) else {
+            // Virtual back rejected at add-time — retry once with plain Wide.
+            if usesVirtualBackZoom, let wide = wideFallback, wide !== backCamera {
+                VideoDebugLog.log("canAddInput failed for virtual back — falling back to wide")
+                usesVirtualBackZoom = false
+                backDevice = wide
+                hasUltraWide = ultraWideDevice != nil
+                try configureMultiCamFormat(for: wide, preferLowerCost: false)
+                let wideInput = try AVCaptureDeviceInput(device: wide)
+                guard session.canAddInput(wideInput), session.canAddInput(frontInput) else {
+                    throw CameraError.cannotAddInput
+                }
+                session.addInputWithNoConnections(wideInput)
+                session.addInputWithNoConnections(frontInput)
+                backCameraInput = wideInput
+                frontCameraInput = frontInput
+                try finishSessionWiring(backDevice: wide, backInput: wideInput, frontCamera: frontCamera, frontInput: frontInput)
+                return
+            }
             throw CameraError.cannotAddInput
         }
         session.addInputWithNoConnections(backInput)
@@ -383,10 +435,19 @@ final class CameraManager: NSObject {
         backCameraInput = backInput
         frontCameraInput = frontInput
 
+        try finishSessionWiring(backDevice: backCamera, backInput: backInput, frontCamera: frontCamera, frontInput: frontInput)
+    }
+
+    private func finishSessionWiring(
+        backDevice: AVCaptureDevice,
+        backInput: AVCaptureDeviceInput,
+        frontCamera: AVCaptureDevice,
+        frontInput: AVCaptureDeviceInput
+    ) throws {
         guard let backPort = backInput.ports(
             for: .video,
-            sourceDeviceType: backCamera.deviceType,
-            sourceDevicePosition: backCamera.position
+            sourceDeviceType: backDevice.deviceType,
+            sourceDevicePosition: backDevice.position
         ).first else {
             throw CameraError.portUnavailable("back")
         }
@@ -435,7 +496,7 @@ final class CameraManager: NSObject {
         // Leave headroom for dual video data outputs.
         if session.hardwareCost > 0.75 {
             VideoDebugLog.log("hardwareCost=\(session.hardwareCost) before video outputs — using efficient formats")
-            try configureMultiCamFormat(for: backCamera, preferLowerCost: true)
+            try configureMultiCamFormat(for: backDevice, preferLowerCost: true)
             try configureMultiCamFormat(for: frontCamera, preferLowerCost: true)
             configurePhotoOutputQuality(backPhotoOutput)
             configurePhotoOutputQuality(frontPhotoOutput)
@@ -447,7 +508,7 @@ final class CameraManager: NSObject {
             VideoDebugLog.log("CameraManager session configured, hardwareCost=\(session.hardwareCost)")
             if session.hardwareCost >= 1.0 {
                 VideoDebugLog.log("WARNING hardwareCost>=1, downgrading formats")
-                try configureMultiCamFormat(for: backCamera, preferLowerCost: true)
+                try configureMultiCamFormat(for: backDevice, preferLowerCost: true)
                 try configureMultiCamFormat(for: frontCamera, preferLowerCost: true)
                 configurePhotoOutputQuality(backPhotoOutput)
                 configurePhotoOutputQuality(frontPhotoOutput)
@@ -455,6 +516,102 @@ final class CameraManager: NSObject {
             }
         } catch {
             VideoDebugLog.log("ERROR videoEngine.configure failed: \(error)")
+        }
+
+        // Match UI zoom after configure (default 1× unless user already chose another level).
+        applyPendingZoom(animated: false)
+        refreshLightCapabilities()
+    }
+
+    /// Prefer Triple → DualWide when multi-cam allows pairing with the front camera.
+    private func resolveBackCamera(front: AVCaptureDevice) throws -> AVCaptureDevice {
+        let preferredTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera
+        ]
+
+        for type in preferredTypes {
+            guard let candidate = AVCaptureDevice.default(type, for: .video, position: .back) else {
+                VideoDebugLog.log("back candidate \(type.rawValue) unavailable")
+                continue
+            }
+            guard candidate.formats.contains(where: \.isMultiCamSupported) else {
+                VideoDebugLog.log("back candidate \(type.rawValue) has no multi-cam formats")
+                continue
+            }
+            guard isMultiCamPairSupported(back: candidate, front: front) else {
+                VideoDebugLog.log("back candidate \(type.rawValue) not in supportedMultiCamDeviceSets with front")
+                continue
+            }
+            usesVirtualBackZoom = candidate.isVirtualDevice
+            return candidate
+        }
+
+        usesVirtualBackZoom = false
+        guard let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            throw CameraError.cameraUnavailable("back")
+        }
+        return wide
+    }
+
+    private func isMultiCamPairSupported(back: AVCaptureDevice, front: AVCaptureDevice) -> Bool {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInTripleCamera,
+                .builtInDualWideCamera,
+                .builtInDualCamera,
+                .builtInWideAngleCamera,
+                .builtInUltraWideCamera,
+                .builtInTelephotoCamera,
+                .builtInTrueDepthCamera
+            ],
+            mediaType: .video,
+            position: .unspecified
+        )
+        let needed = Set([back, front])
+        return discovery.supportedMultiCamDeviceSets.contains { $0.isSuperset(of: needed) }
+    }
+
+    private func logMultiCamDeviceSets() {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInTripleCamera,
+                .builtInDualWideCamera,
+                .builtInDualCamera,
+                .builtInWideAngleCamera,
+                .builtInUltraWideCamera,
+                .builtInTelephotoCamera,
+                .builtInTrueDepthCamera
+            ],
+            mediaType: .video,
+            position: .unspecified
+        )
+        if discovery.supportedMultiCamDeviceSets.isEmpty {
+            VideoDebugLog.log("supportedMultiCamDeviceSets empty")
+            return
+        }
+        for set in discovery.supportedMultiCamDeviceSets {
+            let names = set
+                .map { "\($0.deviceType.rawValue)" }
+                .sorted()
+                .joined(separator: "+")
+            VideoDebugLog.log("multiCamSet {\(names)}")
+        }
+    }
+
+    /// Maps UI zoom chips to the virtual-device zoom space (UW at min, Wide at first switch-over).
+    private func videoZoomFactor(for level: ZoomLevel, on device: AVCaptureDevice) -> CGFloat {
+        let minZoom = device.minAvailableVideoZoomFactor
+        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
+        let wideFactor = switchOvers.first ?? max(minZoom, 1.0)
+
+        switch level {
+        case .half:
+            return minZoom
+        case .one:
+            return wideFactor
+        case .two:
+            return wideFactor * 2
         }
     }
 
@@ -479,8 +636,9 @@ final class CameraManager: NSObject {
                 .max() ?? videoPixels(format)
         }
 
-        // Cap video stream at 1080p-class for dual-cam stability; still pick the
-        // format that unlocks the largest still dimensions under that cap.
+        // Cap video stream at 1080p-class for dual-cam stability.
+        // Prefer usable video resolution first — DualWide can expose a multi-cam
+        // format with huge stills but only 640×480 video (that used to win).
         let maxVideoPixels = 1920 * 1080
         let minPreferredPixels = 1280 * 720
 
@@ -491,15 +649,20 @@ final class CameraManager: NSObject {
         } else {
             let underCap = multiCamFormats.filter { videoPixels($0) <= maxVideoPixels }
             let pool = underCap.isEmpty ? multiCamFormats : underCap
-            selected = pool.max { lhs, rhs in
+            let preferred = pool.filter { videoPixels($0) >= minPreferredPixels }
+            let rankedPool = preferred.isEmpty ? pool : preferred
+            selected = rankedPool.max { lhs, rhs in
+                let lv = videoPixels(lhs)
+                let rv = videoPixels(rhs)
+                if lv != rv { return lv < rv }
                 let lp = photoPixels(lhs)
                 let rp = photoPixels(rhs)
                 if lp != rp { return lp < rp }
                 if lhs.isHighPhotoQualitySupported != rhs.isHighPhotoQualitySupported {
                     return !lhs.isHighPhotoQualitySupported && rhs.isHighPhotoQualitySupported
                 }
-                return videoPixels(lhs) < videoPixels(rhs)
-            } ?? pool[0]
+                return false
+            } ?? rankedPool[0]
         }
 
         let dims = CMVideoFormatDescriptionGetDimensions(selected.formatDescription)
@@ -620,14 +783,15 @@ final class CameraManager: NSObject {
     private func applyZoom(on device: AVCaptureDevice, factor: CGFloat, animated: Bool = true) {
         do {
             try device.lockForConfiguration()
-            let maxZoom = min(device.activeFormat.videoMaxZoomFactor, 10)
-            let target = min(max(factor, 1.0), maxZoom)
+            let minZoom = device.minAvailableVideoZoomFactor
+            let maxZoom = min(device.maxAvailableVideoZoomFactor, device.activeFormat.videoMaxZoomFactor, 16)
+            let target = min(max(factor, minZoom), maxZoom)
             if animated, abs(device.videoZoomFactor - target) > 0.01 {
                 if device.isRampingVideoZoom {
                     device.cancelVideoZoomRamp()
                 }
-                // Zoom factors per second — ~4 feels smooth for 1x ↔ 2x.
-                device.ramp(toVideoZoomFactor: target, withRate: 4.0)
+                // Zoom factors per second — a bit faster helps UW ↔ Wide lens handoff.
+                device.ramp(toVideoZoomFactor: target, withRate: 5.0)
             } else {
                 device.videoZoomFactor = target
             }
