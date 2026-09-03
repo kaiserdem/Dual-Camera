@@ -33,6 +33,7 @@ struct ViewfinderView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
+            .coordinateSpace(name: "viewfinder")
             .clipped()
             .onAppear {
                 viewModel.viewfinderSize = size

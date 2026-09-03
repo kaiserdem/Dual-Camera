@@ -9,7 +9,9 @@ struct PiPWindowView: View {
     @Bindable var viewModel: CameraViewModel
     let containerSize: CGSize
 
-    @State private var dragOrigin: CGPoint?
+    /// Live center while dragging — avoids @Observable updates every frame (lag / flicker).
+    @State private var liveDragCenter: CGPoint?
+    @State private var dragAnchor: CGPoint?
     @State private var pinchStartScale: CGFloat?
 
     private var pipSize: CGSize {
@@ -29,35 +31,47 @@ struct PiPWindowView: View {
         )
     }
 
-    private var position: CGPoint {
+    private var restingPosition: CGPoint {
         viewModel.pipPosition ?? defaultPosition
+    }
+
+    private var displayPosition: CGPoint {
+        liveDragCenter ?? restingPosition
     }
 
     var body: some View {
         styledPip
             .frame(width: pipSize.width, height: pipSize.height)
+            .contentShape(Rectangle())
             .onTapGesture {
                 guard !viewModel.isLayoutLocked else { return }
                 viewModel.swapCameras()
             }
+            .position(displayPosition)
             .gesture(viewModel.isLayoutLocked ? nil : interactionGestures)
-            .position(position)
             .onChange(of: containerSize) { _, newSize in
-                clampStoredPosition(in: newSize)
+                if liveDragCenter == nil {
+                    clampStoredPosition(in: newSize)
+                }
             }
             .onChange(of: viewModel.pipShape) { _, _ in
+                cancelLiveDrag()
                 viewModel.pipPosition = nil
             }
             .onChange(of: viewModel.isPiPRounded) { _, _ in
-                clampStoredPosition(in: containerSize)
+                if liveDragCenter == nil {
+                    clampStoredPosition(in: containerSize)
+                }
             }
             .onChange(of: viewModel.pipScale) { _, _ in
-                clampStoredPosition(in: containerSize)
+                if liveDragCenter == nil {
+                    clampStoredPosition(in: containerSize)
+                }
             }
     }
 
     private var interactionGestures: some Gesture {
-        SimultaneousGesture(dragGesture, magnificationGesture)
+        dragGesture.simultaneously(with: magnificationGesture)
     }
 
     @ViewBuilder
@@ -119,23 +133,29 @@ struct PiPWindowView: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 4)
+        DragGesture(minimumDistance: 4, coordinateSpace: .named("viewfinder"))
             .onChanged { value in
                 guard !viewModel.isLayoutLocked else { return }
-                // Prefer pinch when two-finger interaction is active.
                 guard pinchStartScale == nil else { return }
-                let origin = dragOrigin ?? position
-                if dragOrigin == nil {
-                    dragOrigin = origin
+
+                if dragAnchor == nil {
+                    dragAnchor = restingPosition
                 }
-                let proposed = CGPoint(
-                    x: origin.x + value.translation.width,
-                    y: origin.y + value.translation.height
+                guard let anchor = dragAnchor else { return }
+
+                liveDragCenter = clamp(
+                    CGPoint(
+                        x: anchor.x + value.translation.width,
+                        y: anchor.y + value.translation.height
+                    ),
+                    in: containerSize
                 )
-                viewModel.pipPosition = clamp(proposed, in: containerSize)
             }
             .onEnded { _ in
-                dragOrigin = nil
+                if let final = liveDragCenter {
+                    viewModel.pipPosition = final
+                }
+                cancelLiveDrag()
             }
     }
 
@@ -143,9 +163,12 @@ struct PiPWindowView: View {
         MagnificationGesture()
             .onChanged { value in
                 guard !viewModel.isLayoutLocked else { return }
+                // Ignore single-finger noise that used to reset drag and cause flicker.
+                guard abs(value - 1.0) > 0.04 else { return }
+
                 if pinchStartScale == nil {
                     pinchStartScale = viewModel.pipScale
-                    dragOrigin = nil
+                    cancelLiveDrag()
                 }
                 guard let start = pinchStartScale else { return }
                 viewModel.pipScale = start * value
@@ -154,6 +177,11 @@ struct PiPWindowView: View {
                 pinchStartScale = nil
                 clampStoredPosition(in: containerSize)
             }
+    }
+
+    private func cancelLiveDrag() {
+        liveDragCenter = nil
+        dragAnchor = nil
     }
 
     private func clampStoredPosition(in size: CGSize) {
