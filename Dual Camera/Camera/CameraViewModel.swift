@@ -52,6 +52,9 @@ final class CameraViewModel {
     /// While Settings is open, layout chrome reads this snapshot instead of live `settings`
     /// so toggles do not rebuild the camera preview under the navigation stack.
     private var frozenAppearance: (floatingChrome: Bool, fullBleedBackground: Bool)?
+    /// True while applying appearance after Settings or waiting for session start.
+    var isCameraWarmingUp = false
+    private var appearanceApplyTask: Task<Void, Never>?
     /// Idle top chrome tucked away — only a restore pill remains.
     var isTopBarCollapsed = false
 
@@ -63,18 +66,72 @@ final class CameraViewModel {
         frozenAppearance?.fullBleedBackground ?? settings.isFullBleedCameraBackgroundEnabled
     }
 
+    /// Show spinner when session is down or appearance is mid-apply.
+    var showsCameraLoadingIndicator: Bool {
+        isCameraWarmingUp || !isSessionRunning
+    }
+
     func onSettingsOpened() {
+        appearanceApplyTask?.cancel()
+        appearanceApplyTask = nil
         frozenAppearance = (
             floatingChrome: settings.isFloatingCameraChromeEnabled,
             fullBleedBackground: settings.isFullBleedCameraBackgroundEnabled
         )
+        VideoDebugLog.log(
+            "settings OPEN freeze floating=\(frozenAppearance!.floatingChrome) " +
+            "fullBleed=\(frozenAppearance!.fullBleedBackground) " +
+            "sessionRunning=\(isSessionRunning) configured=\(cameraManager.isConfigured)"
+        )
     }
 
     func onSettingsClosed() {
-        frozenAppearance = nil
-        cameraManager.prepare()
-        syncFlashHardware()
-        motionManager.isActive = isLevelerEnabled
+        let frozen = frozenAppearance
+        let nextFloating = settings.isFloatingCameraChromeEnabled
+        let nextFullBleed = settings.isFullBleedCameraBackgroundEnabled
+        let appearanceChanged =
+            frozen.map { $0.floatingChrome != nextFloating || $0.fullBleedBackground != nextFullBleed } ?? true
+
+        VideoDebugLog.log(
+            "settings CLOSE requested appearanceChanged=\(appearanceChanged) " +
+            "frozenFloating=\(frozen?.floatingChrome.description ?? "nil") → \(nextFloating) " +
+            "sessionRunning=\(isSessionRunning)"
+        )
+
+        appearanceApplyTask?.cancel()
+        isCameraWarmingUp = true
+
+        // Let the navigation pop finish before swapping chrome / touching the session.
+        appearanceApplyTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+
+            VideoDebugLog.log(
+                "settings APPLY appearance floating=\(nextFloating) fullBleed=\(nextFullBleed) " +
+                "session.isRunning(hardware)=\(cameraManager.session.isRunning)"
+            )
+            frozenAppearance = nil
+
+            cameraManager.prepare()
+            syncFlashHardware()
+            motionManager.isActive = isLevelerEnabled
+
+            // Wait briefly for session flag; spinner clears when running.
+            for _ in 0..<40 {
+                if Task.isCancelled { return }
+                if isSessionRunning {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+
+            VideoDebugLog.log(
+                "settings APPLY done sessionRunning=\(isSessionRunning) " +
+                "hardwareRunning=\(cameraManager.session.isRunning) warmingUp→false"
+            )
+            isCameraWarmingUp = false
+            appearanceApplyTask = nil
+        }
     }
 
     /// Layout / PiP / split / ratio edits are locked for the duration of a take.
@@ -222,13 +279,26 @@ final class CameraViewModel {
     private var galleryThumbnailResetTask: Task<Void, Never>?
 
     func onAppear() {
+        VideoDebugLog.log(
+            "CameraView.onAppear sessionRunning=\(isSessionRunning) " +
+            "configured=\(cameraManager.isConfigured) showSettings=\(showSettings)"
+        )
+        if !showSettings {
+            isCameraWarmingUp = !isSessionRunning
+        }
         cameraManager.prepare()
         syncFlashHardware()
         motionManager.isActive = isLevelerEnabled
+        if isSessionRunning {
+            isCameraWarmingUp = false
+        }
     }
 
     /// Covered by another screen in the same stack (e.g. Settings) — keep the capture session alive.
     func onDisappear() {
+        VideoDebugLog.log(
+            "CameraView.onDisappear showSettings=\(showSettings) sessionRunning=\(isSessionRunning)"
+        )
         stopRecordingIfNeeded()
         stopRecordingTimer()
         galleryThumbnailResetTask?.cancel()

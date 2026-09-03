@@ -41,6 +41,7 @@ struct CameraPreviewView: UIViewRepresentable {
 
         func attach(port: AVCaptureInput.Port?) {
             guard let port else {
+                VideoDebugLog.log("preview.attach nil port → detach")
                 detach()
                 return
             }
@@ -49,7 +50,15 @@ struct CameraPreviewView: UIViewRepresentable {
                 return
             }
 
-            guard let session = previewLayer.session as? AVCaptureMultiCamSession else { return }
+            guard let session = previewLayer.session as? AVCaptureMultiCamSession else {
+                VideoDebugLog.log("preview.attach ERROR no multi-cam session on layer")
+                return
+            }
+
+            VideoDebugLog.log(
+                "preview.attach begin port=\(ObjectIdentifier(port)) " +
+                "sessionRunning=\(session.isRunning)"
+            )
 
             session.beginConfiguration()
             defer { session.commitConfiguration() }
@@ -59,6 +68,7 @@ struct CameraPreviewView: UIViewRepresentable {
 
             let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: previewLayer)
             guard session.canAddConnection(connection) else {
+                VideoDebugLog.log("preview.attach ERROR canAddConnection=false")
                 attachedPort = nil
                 return
             }
@@ -66,6 +76,7 @@ struct CameraPreviewView: UIViewRepresentable {
             session.addConnection(connection)
             configureMirroring(on: connection, for: port)
             attachedPort = port
+            VideoDebugLog.log("preview.attach OK")
         }
 
         func detach() {
@@ -74,6 +85,7 @@ struct CameraPreviewView: UIViewRepresentable {
                 return
             }
 
+            VideoDebugLog.log("preview.detach")
             session.beginConfiguration()
             defer { session.commitConfiguration() }
             detachCurrentConnection(in: session)

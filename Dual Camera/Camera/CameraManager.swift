@@ -90,6 +90,10 @@ final class CameraManager: NSObject {
     }
 
     func prepare() {
+        VideoDebugLog.log(
+            "prepare() called configured=\(isConfigured) sessionRunning(flag)=\(isSessionRunning) " +
+            "hardwareRunning=\(session.isRunning)"
+        )
         guard isMultiCamAvailable else {
             errorMessage = MultiCamSupport.unsupportedMessage
             return
@@ -351,19 +355,28 @@ final class CameraManager: NSObject {
     private func configureAndStart() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            VideoDebugLog.log(
+                "configureAndStart begin configured=\(self.isConfigured) " +
+                "hardwareRunning=\(self.session.isRunning)"
+            )
             do {
                 if !self.isConfigured {
                     try self.configureSession()
                 }
                 if !self.session.isRunning {
+                    VideoDebugLog.log("configureAndStart → session.startRunning()")
                     self.session.startRunning()
+                } else {
+                    VideoDebugLog.log("configureAndStart → session already running")
                 }
                 self.refreshLightCapabilities()
                 Task { @MainActor in
                     self.isConfigured = true
                     self.isSessionRunning = true
+                    VideoDebugLog.log("configureAndStart DONE isSessionRunning=true")
                 }
             } catch {
+                VideoDebugLog.log("ERROR configureAndStart \(error.localizedDescription)")
                 Task { @MainActor in
                     self.errorMessage = error.localizedDescription
                 }

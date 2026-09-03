@@ -25,12 +25,14 @@ struct CameraView: View {
                 ZStack {
                     Color.black.ignoresSafeArea()
 
-                    if usesFloatingChrome {
-                        floatingChromeLayout
-                    } else if usesFullBleedCameraBackground {
-                        classicFullBleedChromeLayout
-                    } else {
-                        classicChromeLayout
+                    // Keep one viewfinder identity across appearance modes so preview
+                    // layers are not destroyed when Floating panels / background toggles.
+                    viewfinderSection()
+
+                    chromeOverlay
+
+                    if viewModel.showsCameraLoadingIndicator {
+                        cameraLoadingOverlay
                     }
 
                     if viewModel.activeOverlay != .none {
@@ -80,6 +82,12 @@ struct CameraView: View {
                     viewModel.syncFlashHardware()
                 }
             }
+            .onChange(of: viewModel.isSessionRunning) { _, running in
+                VideoDebugLog.log("UI isSessionRunning → \(running)")
+                if running {
+                    viewModel.isCameraWarmingUp = false
+                }
+            }
             .alert(
                 "Camera Unavailable",
                 isPresented: Binding(
@@ -96,71 +104,44 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(true)
-        .animation(.easeInOut(duration: 0.25), value: usesFloatingChrome)
-        .animation(.easeInOut(duration: 0.25), value: usesFullBleedCameraBackground)
     }
 
     // MARK: - Layouts
 
-    private var floatingChromeLayout: some View {
-        ZStack {
-            viewfinderSection()
-
-            VStack(spacing: 0) {
-                TopBarView(viewModel: viewModel)
-                    .modifier(TopBarChromeModifier(
-                        usesFloatingChrome: true,
-                        isCollapsed: viewModel.isTopBarCollapsed && !viewModel.isRecording
-                    ))
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                Spacer(minLength: 0)
-                    .allowsHitTesting(false)
-
-                BottomBarView(viewModel: viewModel)
-                    .cameraFloatingPanel()
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 40)
-            }
-            .ignoresSafeArea(edges: .bottom)
+    /// Bars only — viewfinder lives in the parent ZStack so it stays stable.
+    @ViewBuilder
+    private var chromeOverlay: some View {
+        if usesFloatingChrome {
+            floatingChromeBars
+        } else if usesFullBleedCameraBackground {
+            classicFullBleedChromeBars
+        } else {
+            classicChromeBars
         }
     }
 
-    /// Classic bars over an edge-to-edge camera stage (no black letterbox).
-    private var classicFullBleedChromeLayout: some View {
-        ZStack {
-            viewfinderSection()
+    private var floatingChromeBars: some View {
+        VStack(spacing: 0) {
+            TopBarView(viewModel: viewModel)
+                .modifier(TopBarChromeModifier(
+                    usesFloatingChrome: true,
+                    isCollapsed: viewModel.isTopBarCollapsed && !viewModel.isRecording
+                ))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
 
-            VStack(spacing: 0) {
-                TopBarView(viewModel: viewModel)
-                    .background(
-                        LinearGradient(
-                            colors: [.black.opacity(0.55), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .padding(.top, 0)
+            Spacer(minLength: 0)
+                .allowsHitTesting(false)
 
-                Spacer(minLength: 0)
-                    .allowsHitTesting(false)
-
-                BottomBarView(viewModel: viewModel)
-                    .background(
-                        LinearGradient(
-                            colors: [.clear, .black.opacity(0.7)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .padding(.bottom, 35)
-            }
-            .ignoresSafeArea(edges: .bottom)
+            BottomBarView(viewModel: viewModel)
+                .cameraFloatingPanel()
+                .padding(.horizontal, 16)
+                .padding(.bottom, 40)
         }
+        .ignoresSafeArea(edges: .bottom)
     }
 
-    private var classicChromeLayout: some View {
+    private var classicFullBleedChromeBars: some View {
         VStack(spacing: 0) {
             TopBarView(viewModel: viewModel)
                 .background(
@@ -172,8 +153,8 @@ struct CameraView: View {
                 )
                 .padding(.top, 0)
 
-            viewfinderSection()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Spacer(minLength: 0)
+                .allowsHitTesting(false)
 
             BottomBarView(viewModel: viewModel)
                 .background(
@@ -188,19 +169,80 @@ struct CameraView: View {
         .ignoresSafeArea(edges: .bottom)
     }
 
+    /// Classic letterbox: opaque bars cover the stage edges (camera stays underneath).
+    private var classicChromeBars: some View {
+        VStack(spacing: 0) {
+            TopBarView(viewModel: viewModel)
+                .frame(maxWidth: .infinity)
+                .background(Color.black)
+                .padding(.top, 0)
+
+            Spacer(minLength: 0)
+                .allowsHitTesting(false)
+
+            BottomBarView(viewModel: viewModel)
+                .frame(maxWidth: .infinity)
+                .background(Color.black)
+                .padding(.bottom, 35)
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var cameraLoadingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .scaleEffect(1.2)
+                Text("Starting camera…")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .environment(\.colorScheme, .dark)
+            )
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.showsCameraLoadingIndicator)
+    }
+
     /// Space reserved so Fit / framed ratios sit between floating chrome panels.
     private var chromeTopInset: CGFloat {
-        viewModel.isTopBarCollapsed ? 40 : 72
+        if usesFloatingChrome {
+            return viewModel.isTopBarCollapsed ? 40 : 72
+        }
+        if usesFullBleedCameraBackground {
+            return 0
+        }
+        // Classic letterbox — keep stage away from opaque bars.
+        return viewModel.isTopBarCollapsed ? 52 : 64
     }
-    private var chromeBottomInset: CGFloat { 200 }
+
+    private var chromeBottomInset: CGFloat {
+        if usesFloatingChrome {
+            return 200
+        }
+        if usesFullBleedCameraBackground {
+            return 0
+        }
+        return 160
+    }
 
     /// Live capture stage.
     /// Full sits edge-to-edge under floating chrome (Z-order below bars). Other modes unchanged.
     private func viewfinderSection() -> some View {
         GeometryReader { proxy in
             let isFull = viewModel.selectedRatio == .fill
-            let topInset: CGFloat = (usesFloatingChrome && !isFull) ? chromeTopInset : 0
-            let bottomInset: CGFloat = (usesFloatingChrome && !isFull) ? chromeBottomInset : 0
+            let useChromeInsets = usesFloatingChrome || !usesFullBleedCameraBackground
+            let topInset: CGFloat = (useChromeInsets && !isFull) ? chromeTopInset : 0
+            let bottomInset: CGFloat = (useChromeInsets && !isFull) ? chromeBottomInset : 0
             let availableSize = CGSize(
                 width: proxy.size.width,
                 height: max(proxy.size.height - topInset - bottomInset, 1)
