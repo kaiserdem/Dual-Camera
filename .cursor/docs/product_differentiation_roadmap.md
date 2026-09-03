@@ -179,7 +179,7 @@ Photo у Dashcam/Reaction лишається корисним (прев’ю к�
 | ID | Пункт | Status |
 |----|-------|--------|
 | P0.1 | Закрити / стабілізувати virtual smooth zoom (`dualWide`) | in progress |
-| P0.2 | Вирівняти Fit aspect-fit (`prefersAspectFit`) зі спекою | idea |
+| P0.2 | Fit WYSIWYG (viewfinder aspect-fill, export = preview, PiP aligned) | done |
 | P0.3 | Settings floating → black screen / freeze (перевірити mitigation) | idea |
 | P0.4 | Оновити застарілий `dualcam_clone.md` під реальний композит | idea |
 
@@ -261,3 +261,4 @@ Photo у Dashcam/Reaction лишається корисним (прев’ю к�
 |------|---------|
 | 2026-08-21 | Документ створено. Реалізацію режимів **ще не затверджено**. Порада прийнята як стратегічний backlog з адаптацією Capture≠Product Mode. |
 | 2026-08-21 | Додано **Auto Captions (субтитри)** як Концепція C / етап **P5** (Pro-кандидат; після burn-in overlays, не v1). |
+| 2026-09-03 | Fit переозначено як WYSIWYG: aspect-fill без letterbox, export = пропорція viewfinder; PiP позиція збігається з екраном. |

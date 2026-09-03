@@ -15,7 +15,7 @@ enum DualImageCompositor {
     ) -> UIImage {
         let primaryImage = primary.normalizedOrientation()
         let secondaryImage = secondary.normalizedOrientation()
-        let outputSize = outputSize(for: primaryImage.size, aspectRatio: context.aspectRatio)
+        let outputSize = outputSize(for: primaryImage.size, context: context)
 
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -88,9 +88,16 @@ enum DualImageCompositor {
 
     // MARK: - Private
 
-    private static func outputSize(for imageSize: CGSize, aspectRatio: AspectRatio) -> CGSize {
-        guard let ratio = aspectRatio.ratio else {
-            return imageSize
+    /// Fit follows the on-screen viewfinder aspect (same rule as `videoFrameSize`)
+    /// so PiP lands where the preview shows it instead of drifting in the sensor frame.
+    private static func outputSize(for imageSize: CGSize, context: CaptureLayoutContext) -> CGSize {
+        let ratio: CGFloat
+        if let fixed = context.aspectRatio.ratio {
+            ratio = fixed
+        } else {
+            let viewfinder = context.viewfinderSize
+            guard viewfinder.width > 1, viewfinder.height > 1 else { return imageSize }
+            ratio = viewfinder.width / viewfinder.height
         }
 
         let imageRatio = imageSize.width / max(imageSize.height, 1)

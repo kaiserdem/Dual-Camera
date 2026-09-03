@@ -103,7 +103,7 @@ struct CaptureLayoutContext: @unchecked Sendable {
         return Self.evenEncoderSize(raw)
     }
 
-    /// Fit / fixed ratios fill the frame. Only Full may letterbox on the sides.
+    /// WYSIWYG: preview and export both aspect-fill the viewfinder frame (no letterboxing).
     var prefersAspectFit: Bool {
         false
     }
