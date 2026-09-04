@@ -87,10 +87,10 @@ a:hover {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 1.35rem;
-  background: linear-gradient(135deg, #4a3f00, #1a1a1a);
+  display: block;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: #1a1a1a;
   box-shadow:
     0 0 0 1px rgba(255, 214, 10, 0.45),
     0 4px 12px rgba(0, 0, 0, 0.45);
