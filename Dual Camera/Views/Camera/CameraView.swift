@@ -7,8 +7,6 @@ import SwiftUI
 
 struct CameraView: View {
     @State private var viewModel = CameraViewModel()
-    @State private var overlayOffset: CGSize = .zero
-    @State private var overlayDragStart: CGSize?
     @Environment(\.scenePhase) private var scenePhase
 
     private var usesFloatingChrome: Bool {
@@ -45,7 +43,7 @@ struct CameraView: View {
                             }
                     }
 
-                    overlayPanel(in: proxy.size)
+                    overlayPanel()
                 }
             }
             .navigationBarHidden(true)
@@ -94,6 +92,7 @@ struct CameraView: View {
                 VideoDebugLog.log("UI isSessionRunning → \(running)")
                 if running {
                     viewModel.isCameraWarmingUp = false
+                    viewModel.syncCameraPowerPolicy()
                 }
             }
             .alert(
@@ -303,7 +302,7 @@ struct CameraView: View {
     }
 
     @ViewBuilder
-    private func overlayPanel(in containerSize: CGSize) -> some View {
+    private func overlayPanel() -> some View {
         VStack {
             Spacer().frame(height: usesFloatingChrome ? (viewModel.isTopBarCollapsed ? 44 : 78) : 64)
 
@@ -320,37 +319,11 @@ struct CameraView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .offset(overlayOffset)
-            .simultaneousGesture(overlayDragGesture(in: containerSize))
             .transition(.move(edge: .top).combined(with: .opacity))
 
             Spacer()
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.activeOverlay)
-        .onChange(of: viewModel.activeOverlay) { _, _ in
-            overlayOffset = .zero
-            overlayDragStart = nil
-        }
-    }
-
-    private func overlayDragGesture(in containerSize: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                let start = overlayDragStart ?? overlayOffset
-                if overlayDragStart == nil {
-                    overlayDragStart = start
-                }
-                overlayOffset = clampOverlayOffset(
-                    CGSize(
-                        width: start.width + value.translation.width,
-                        height: start.height + value.translation.height
-                    ),
-                    in: containerSize
-                )
-            }
-            .onEnded { _ in
-                overlayDragStart = nil
-            }
     }
 
     // MARK: - Teleprompter
@@ -368,16 +341,6 @@ struct CameraView: View {
         )
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.25), value: viewModel.settings.isTeleprompterActive)
-    }
-
-    private func clampOverlayOffset(_ offset: CGSize, in containerSize: CGSize) -> CGSize {
-        let maxX = max(containerSize.width * 0.35, 80)
-        let minY: CGFloat = -40
-        let maxY = max(containerSize.height * 0.55, 120)
-        return CGSize(
-            width: min(max(offset.width, -maxX), maxX),
-            height: min(max(offset.height, minY), maxY)
-        )
     }
 
     private func aspectFittedSize(in container: CGSize, ratio: CGFloat?) -> CGSize {

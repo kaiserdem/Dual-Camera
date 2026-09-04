@@ -15,6 +15,7 @@
 | Video Export Settings | [specs/camera/video_export_settings.md](specs/camera/video_export_settings.md) | Done |
 | Full-Bleed Camera Background | [specs/camera/full_bleed_camera_background.md](specs/camera/full_bleed_camera_background.md) | Done |
 | Fit and Full Aspect Modes | [specs/camera/fit_full_aspect_modes.md](specs/camera/fit_full_aspect_modes.md) | Done |
+| Solo Layouts (Main / Front) | [specs/camera/solo_layouts.md](specs/camera/solo_layouts.md) | In progress |
 | Collapsible Top Bar | [specs/camera/collapsible_top_bar.md](specs/camera/collapsible_top_bar.md) | Done |
 | Virtual Back Smooth Zoom | [specs/camera/virtual_back_smooth_zoom.md](specs/camera/virtual_back_smooth_zoom.md) | In progress |
 

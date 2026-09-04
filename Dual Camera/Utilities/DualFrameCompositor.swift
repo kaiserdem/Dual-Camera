@@ -88,6 +88,14 @@ nonisolated enum DualFrameCompositor {
                 outputSize: outputSize,
                 cg: cg
             )
+
+        case .backOnly:
+            let image = context.isPrimaryBack ? primaryImage : secondaryImage
+            draw(image, in: bounds, cg: cg, fill: fillCamera)
+
+        case .frontOnly:
+            let image = context.isPrimaryBack ? secondaryImage : primaryImage
+            draw(image, in: bounds, cg: cg, fill: fillCamera)
         }
 
         return output

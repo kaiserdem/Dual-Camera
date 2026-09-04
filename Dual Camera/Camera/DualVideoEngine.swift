@@ -110,6 +110,18 @@ nonisolated final class DualVideoEngine: NSObject, @unchecked Sendable {
         VideoDebugLog.log("configure() OK, hardwareCost=\(session.hardwareCost), backEnabled=\(backConnection.isEnabled), frontEnabled=\(frontConnection.isEnabled)")
     }
 
+    /// Enable/disable video data connections without tearing down the session.
+    /// Used for Main/Front solo layouts to reduce heat while keeping dual wiring intact.
+    func setVideoConnectionsEnabled(back: Bool, front: Bool) {
+        for connection in backVideoOutput.connections {
+            connection.isEnabled = back
+        }
+        for connection in frontVideoOutput.connections {
+            connection.isEnabled = front
+        }
+        VideoDebugLog.log("videoConnections back=\(back) front=\(front)")
+    }
+
     func reconnectBack(port: AVCaptureInput.Port, session: AVCaptureMultiCamSession) {
         for connection in backVideoOutput.connections {
             session.removeConnection(connection)

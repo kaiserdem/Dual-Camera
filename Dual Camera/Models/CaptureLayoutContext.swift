@@ -21,6 +21,8 @@ struct CaptureLayoutContext: @unchecked Sendable {
     var viewfinderSize: CGSize
     /// PiP center in viewfinder coordinates.
     var pipCenter: CGPoint
+    /// Snapshot of which physical camera is primary at take start (for solo layouts).
+    var isPrimaryBack: Bool
 
     static let pipEdgeInset: CGFloat = 16
 

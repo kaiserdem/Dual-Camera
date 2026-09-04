@@ -45,7 +45,7 @@ A teleprompter overlay for the Dual Camera app that displays scrolling script te
 - [x] Recording in progress: teleprompter button toggles overlay + scroll — does **not** open the editor
 - [x] Recording top bar shows a teleprompter control so toggle is available during a take
 - [x] When `teleprompterAutoStartWithRecording` is on and recording starts with non-empty script → `isTeleprompterActive = true` and scroll starts (after optional delay)
-- [x] When recording stops → keep overlay visible; pause scroll (`isTeleprompterScrolling = false`)
+- [x] When recording stops → hide overlay and stop scroll (`deactivateTeleprompter`)
 - [x] Overlay lives in chrome `VStack` middle slot: TopBar → Teleprompter (flex) → BottomBar (zoom)
 - [x] Shutter, pause, zoom, and other chrome controls remain accessible while teleprompter is active (not covered by text area)
 - [x] `AppSettings` extended with teleprompter settings keys

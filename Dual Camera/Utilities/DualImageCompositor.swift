@@ -71,6 +71,14 @@ enum DualImageCompositor {
                     outputSize: outputSize,
                     cg: cg
                 )
+
+            case .backOnly:
+                let image = context.isPrimaryBack ? primaryImage : secondaryImage
+                draw(image, in: bounds, fill: !context.prefersAspectFit)
+
+            case .frontOnly:
+                let image = context.isPrimaryBack ? secondaryImage : primaryImage
+                draw(image, in: bounds, fill: !context.prefersAspectFit)
             }
         }
     }

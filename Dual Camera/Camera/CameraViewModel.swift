@@ -156,6 +156,7 @@ final class CameraViewModel {
         set {
             guard !isLayoutLocked else { return }
             settings.selectedLayout = newValue
+            cameraManager.applyCameraPowerPolicy(for: newValue)
         }
     }
 
@@ -264,6 +265,8 @@ final class CameraViewModel {
     }
     var primaryPort: AVCaptureInput.Port? { cameraManager.primaryVideoPort }
     var secondaryPort: AVCaptureInput.Port? { cameraManager.secondaryVideoPort }
+    var backPort: AVCaptureInput.Port? { cameraManager.backVideoPort }
+    var frontPort: AVCaptureInput.Port? { cameraManager.frontVideoPort }
     var session: AVCaptureMultiCamSession { cameraManager.session }
     var levelerRoll: Double { motionManager.roll }
 
@@ -292,7 +295,13 @@ final class CameraViewModel {
         motionManager.isActive = isLevelerEnabled
         if isSessionRunning {
             isCameraWarmingUp = false
+            syncCameraPowerPolicy()
         }
+    }
+
+    /// Match enabled camera connections to the current layout (solo cool-down / dual restore).
+    func syncCameraPowerPolicy() {
+        cameraManager.applyCameraPowerPolicy(for: selectedLayout)
     }
 
     /// Covered by another screen in the same stack (e.g. Settings) — keep the capture session alive.
@@ -534,7 +543,8 @@ final class CameraViewModel {
                 in: size,
                 shape: pipShape,
                 scale: pipScale
-            )
+            ),
+            isPrimaryBack: cameraManager.isPrimaryBack
         )
     }
 
@@ -584,9 +594,9 @@ final class CameraViewModel {
         activateTeleprompter(play: true)
     }
 
-    /// Keep overlay visible; pause scroll when recording ends.
+    /// Hide teleprompter and stop scroll when recording ends.
     func handleTeleprompterRecordingStopped() {
-        settings.isTeleprompterScrolling = false
+        deactivateTeleprompter()
     }
 
     func increaseBorderWidth() {

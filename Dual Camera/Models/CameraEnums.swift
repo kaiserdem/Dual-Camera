@@ -56,6 +56,10 @@ enum CameraLayout: String, CaseIterable, Identifiable {
     case pip
     case verticalSplit
     case horizontalSplit
+    /// Full-frame rear (back) camera only.
+    case backOnly
+    /// Full-frame front camera only.
+    case frontOnly
 
     var id: String { rawValue }
 
@@ -64,6 +68,8 @@ enum CameraLayout: String, CaseIterable, Identifiable {
         case .pip: "PiP"
         case .verticalSplit: "Vertical"
         case .horizontalSplit: "Horizontal"
+        case .backOnly: "Main"
+        case .frontOnly: "Front"
         }
     }
 
@@ -72,6 +78,16 @@ enum CameraLayout: String, CaseIterable, Identifiable {
         case .pip: "rectangle.on.rectangle"
         case .verticalSplit: "rectangle.split.2x1"
         case .horizontalSplit: "rectangle.split.1x2"
+        case .backOnly: "camera.fill"
+        case .frontOnly: "person.crop.circle"
+        }
+    }
+
+    /// Solo layouts compose a single camera into the full output frame.
+    var usesSingleCamera: Bool {
+        switch self {
+        case .backOnly, .frontOnly: true
+        case .pip, .verticalSplit, .horizontalSplit: false
         }
     }
 }

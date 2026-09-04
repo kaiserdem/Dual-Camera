@@ -19,7 +19,12 @@ struct BottomBarView: View {
                     galleryButton
                 }
                 shutterButton
+                // Solo Main/Front: keep invisible placeholder so shutter stays centered.
+                // Dual layouts: show swap as before.
                 swapButton
+                    .opacity(viewModel.selectedLayout.usesSingleCamera ? 0 : 1)
+                    .allowsHitTesting(!viewModel.selectedLayout.usesSingleCamera)
+                    .accessibilityHidden(viewModel.selectedLayout.usesSingleCamera)
             }
 
             modeSelector
@@ -30,7 +35,10 @@ struct BottomBarView: View {
     }
 
     private var zoomSelector: some View {
-        let isEnabled = viewModel.isZoomControlEnabled
+        // Front camera has no optical/digital zoom control in this app — keep the row
+        // for spacing but make chips invisible so the bottom bar does not jump.
+        let showsZoom = viewModel.selectedLayout != .frontOnly
+        let isEnabled = viewModel.isZoomControlEnabled && showsZoom
         return HStack(spacing: 10) {
             ForEach(ZoomLevel.allCases) { level in
                 let isSelected = viewModel.selectedZoom == level
@@ -58,6 +66,9 @@ struct BottomBarView: View {
                 .disabled(!isEnabled)
             }
         }
+        .opacity(showsZoom ? 1 : 0)
+        .allowsHitTesting(showsZoom)
+        .accessibilityHidden(!showsZoom)
     }
 
     private var galleryButton: some View {

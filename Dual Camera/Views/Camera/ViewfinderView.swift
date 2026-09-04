@@ -22,6 +22,10 @@ struct ViewfinderView: View {
                     splitLayout(axis: .horizontal, size: size)
                 case .horizontalSplit:
                     splitLayout(axis: .vertical, size: size)
+                case .backOnly:
+                    soloLayout(size: size, useBackCamera: true)
+                case .frontOnly:
+                    soloLayout(size: size, useBackCamera: false)
                 }
 
                 if viewModel.isGridEnabled {
@@ -50,6 +54,19 @@ struct ViewfinderView: View {
             .frame(width: size.width, height: size.height)
 
         PiPWindowView(viewModel: viewModel, containerSize: size)
+    }
+
+    /// Full-frame single-camera preview (physical back or front).
+    @ViewBuilder
+    private func soloLayout(size: CGSize, useBackCamera: Bool) -> some View {
+        Group {
+            if useBackCamera {
+                backPreview
+            } else {
+                frontPreview
+            }
+        }
+        .frame(width: size.width, height: size.height)
     }
 
     @ViewBuilder
@@ -208,6 +225,26 @@ struct ViewfinderView: View {
                 .id("secondary-\(ObjectIdentifier(port))")
         } else {
             placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.square")
+        }
+    }
+
+    @ViewBuilder
+    private var backPreview: some View {
+        if viewModel.isSessionRunning, let port = viewModel.backPort {
+            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
+                .id("back-\(ObjectIdentifier(port))")
+        } else {
+            placeholder(colors: [.blue.opacity(0.75), .purple.opacity(0.65)], symbol: "camera.fill")
+        }
+    }
+
+    @ViewBuilder
+    private var frontPreview: some View {
+        if viewModel.isSessionRunning, let port = viewModel.frontPort {
+            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
+                .id("front-\(ObjectIdentifier(port))")
+        } else {
+            placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.circle")
         }
     }
 

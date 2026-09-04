@@ -245,8 +245,10 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
         }
         appendPrimaryCount += 1
         latestPrimary = buffer
-        // Primary drives the output timeline once both cameras are primed.
-        let shouldWrite = latestSecondary != nil
+        // Dual: wait for secondary. Solo: write as soon as the needed camera is primed.
+        let shouldWrite = layoutContext.layout.usesSingleCamera
+            ? isSoloSourceReadyLocked()
+            : latestSecondary != nil
         if !shouldWrite, !waitingForBothLogged {
             waitingForBothLogged = true
             VideoDebugLog.log("waiting for secondary camera before first frame")
@@ -275,9 +277,14 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
         }
         appendSecondaryCount += 1
         latestSecondary = buffer
-        // Kick the first frame if primary already arrived; otherwise primary will write.
-        let shouldKickstart = !isSessionStarted && latestPrimary != nil
-        if shouldKickstart {
+        let shouldKickstart: Bool
+        if layoutContext.layout.usesSingleCamera {
+            shouldKickstart = isSoloSourceReadyLocked()
+        } else {
+            // Kick the first frame if primary already arrived; otherwise primary will write.
+            shouldKickstart = !isSessionStarted && latestPrimary != nil
+        }
+        if shouldKickstart, !layoutContext.layout.usesSingleCamera {
             VideoDebugLog.log("secondary primed — starting dual frames")
         }
         lock.unlock()
@@ -402,14 +409,33 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
         lock.lock()
         guard isRecording,
               !isPaused,
-              !isEncodeBusy,
-              let primary = latestPrimary,
-              let secondary = latestSecondary else {
+              !isEncodeBusy else {
             lock.unlock()
             return
         }
-        isEncodeBusy = true
+
         let layout = layoutContext
+        let primary: CVPixelBuffer
+        let secondary: CVPixelBuffer
+
+        if layout.layout.usesSingleCamera {
+            guard let source = soloSourceBufferLocked() else {
+                lock.unlock()
+                return
+            }
+            // Pass the same buffer twice; compositor selects by layout + isPrimaryBack.
+            primary = source
+            secondary = source
+        } else {
+            guard let p = latestPrimary, let s = latestSecondary else {
+                lock.unlock()
+                return
+            }
+            primary = p
+            secondary = s
+        }
+
+        isEncodeBusy = true
         let size = frameSize
         let pausedDuration = totalPausedDuration
         lock.unlock()
@@ -480,6 +506,23 @@ nonisolated final class DualVideoRecorder: NSObject, @unchecked Sendable {
             if appendFailCount <= 5 || appendFailCount % 30 == 0 {
                 VideoDebugLog.log("ERROR adaptor.append failed #\(appendFailCount) writerError=\(writer.error?.localizedDescription ?? "nil")")
             }
+        }
+    }
+
+    /// Caller must hold `lock`.
+    private func isSoloSourceReadyLocked() -> Bool {
+        soloSourceBufferLocked() != nil
+    }
+
+    /// Caller must hold `lock`. Returns the physical camera buffer for solo layouts.
+    private func soloSourceBufferLocked() -> CVPixelBuffer? {
+        switch layoutContext.layout {
+        case .backOnly:
+            return layoutContext.isPrimaryBack ? latestPrimary : latestSecondary
+        case .frontOnly:
+            return layoutContext.isPrimaryBack ? latestSecondary : latestPrimary
+        case .pip, .verticalSplit, .horizontalSplit:
+            return nil
         }
     }
 

@@ -9,11 +9,7 @@ struct SettingsView: View {
     @Bindable var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
 
-    private let rateURL = URL(string: "https://apps.apple.com/app/id000000000")!
-    private let privacyURL = URL(string: "https://example.com/privacy")!
-    private let termsURL = URL(string: "https://example.com/terms")!
-    private let contactURL = URL(string: "mailto:support@example.com")!
-    private let shareText = "Check out Dual Camera — shoot with front and back cameras at once!"
+    private let shareText = "Check out DuoPrompter — dual camera with a built-in teleprompter!"
 
     var body: some View {
         ZStack {
@@ -135,11 +131,11 @@ struct SettingsView: View {
             .frame(width: 88, height: 108)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Dual Camera")
+                Text(DualCameraLegal.appName)
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
 
-                Text("Two lenses. One take.")
+                Text(DualCameraLegal.tagline)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
 
@@ -268,15 +264,17 @@ struct SettingsView: View {
             sectionHeader(title: "More", subtitle: nil)
 
             HStack(spacing: 10) {
-                Link(destination: rateURL) {
-                    actionTile(title: "Rate", systemImage: "star.fill", accent: .yellow)
+                if let rateURL = DualCameraLegal.rateURL {
+                    Link(destination: rateURL) {
+                        actionTile(title: "Rate", systemImage: "star.fill", accent: .yellow)
+                    }
                 }
 
                 ShareLink(item: shareText) {
                     actionTile(title: "Share", systemImage: "square.and.arrow.up", accent: .white)
                 }
 
-                Link(destination: contactURL) {
+                Link(destination: DualCameraLegal.contactURL) {
                     actionTile(title: "Contact", systemImage: "envelope.fill", accent: .cyan)
                 }
             }
@@ -292,7 +290,7 @@ struct SettingsView: View {
             sectionHeader(title: "About", subtitle: "Legal & app info")
 
             VStack(spacing: 8) {
-                Link(destination: privacyURL) {
+                Link(destination: DualCameraLegal.privacyURL) {
                     legalRow(
                         title: "Privacy Policy",
                         subtitle: "How we handle data",
@@ -301,10 +299,10 @@ struct SettingsView: View {
                     )
                 }
 
-                Link(destination: termsURL) {
+                Link(destination: DualCameraLegal.termsURL) {
                     legalRow(
                         title: "Terms of Use",
-                        subtitle: "Rules for using Dual Camera",
+                        subtitle: "Rules for using \(DualCameraLegal.appName)",
                         systemImage: "doc.text.fill",
                         accent: .white
                     )

@@ -108,12 +108,12 @@ final class CameraManager: NSObject {
                     if granted {
                         self?.requestMicrophoneThenConfigure()
                     } else {
-                        self?.errorMessage = "Camera access is required to use Dual Camera."
+                        self?.errorMessage = "Camera access is required to use \(DualCameraLegal.appName)."
                     }
                 }
             }
         default:
-            errorMessage = "Camera access is required to use Dual Camera."
+            errorMessage = "Camera access is required to use \(DualCameraLegal.appName)."
         }
     }
 
@@ -238,6 +238,33 @@ final class CameraManager: NSObject {
                 return
             }
 
+            // Keep power policy in sync before capture (layout may have just changed).
+            self.applyCameraPowerPolicyOnSessionQueue(for: layout.layout)
+
+            self.activeLayoutContext = layout
+            self.pendingPrimaryImage = nil
+            self.pendingSecondaryImage = nil
+            self.dualPhotoDelegates.removeAll()
+
+            if layout.layout.usesSingleCamera {
+                let captureBack = (layout.layout == .backOnly)
+                let output = captureBack ? self.backPhotoOutput : self.frontPhotoOutput
+                guard output.connection(with: .video)?.isEnabled == true else {
+                    Task { @MainActor in
+                        self.errorMessage = "Photo capture is not available."
+                    }
+                    return
+                }
+
+                let settings = self.makePhotoSettings(for: output)
+                let delegate = PhotoCaptureDelegate { [weak self] image in
+                    self?.handleDualPhoto(image: image, isBack: captureBack)
+                }
+                self.dualPhotoDelegates = [delegate]
+                output.capturePhoto(with: settings, delegate: delegate)
+                return
+            }
+
             guard self.backPhotoOutput.connection(with: .video)?.isEnabled == true,
                   self.frontPhotoOutput.connection(with: .video)?.isEnabled == true else {
                 Task { @MainActor in
@@ -245,11 +272,6 @@ final class CameraManager: NSObject {
                 }
                 return
             }
-
-            self.activeLayoutContext = layout
-            self.pendingPrimaryImage = nil
-            self.pendingSecondaryImage = nil
-            self.dualPhotoDelegates.removeAll()
 
             let backSettings = self.makePhotoSettings(for: self.backPhotoOutput)
             let frontSettings = self.makePhotoSettings(for: self.frontPhotoOutput)
@@ -265,6 +287,41 @@ final class CameraManager: NSObject {
             self.backPhotoOutput.capturePhoto(with: backSettings, delegate: backDelegate)
             self.frontPhotoOutput.capturePhoto(with: frontSettings, delegate: frontDelegate)
         }
+    }
+
+    /// Solo layouts disable the unused camera's video/photo connections to cut heat.
+    /// Dual layouts re-enable both. Does not remove inputs — dual path stays intact.
+    func applyCameraPowerPolicy(for layout: CameraLayout) {
+        sessionQueue.async { [weak self] in
+            self?.applyCameraPowerPolicyOnSessionQueue(for: layout)
+        }
+    }
+
+    private func applyCameraPowerPolicyOnSessionQueue(for layout: CameraLayout) {
+        let enableBack: Bool
+        let enableFront: Bool
+        switch layout {
+        case .backOnly:
+            enableBack = true
+            enableFront = false
+        case .frontOnly:
+            enableBack = false
+            enableFront = true
+        case .pip, .verticalSplit, .horizontalSplit:
+            enableBack = true
+            enableFront = true
+        }
+
+        session.beginConfiguration()
+        videoEngine.setVideoConnectionsEnabled(back: enableBack, front: enableFront)
+        backPhotoOutput.connection(with: .video)?.isEnabled = enableBack
+        frontPhotoOutput.connection(with: .video)?.isEnabled = enableFront
+        session.commitConfiguration()
+
+        VideoDebugLog.log(
+            "powerPolicy layout=\(layout.rawValue) back=\(enableBack) front=\(enableFront) " +
+            "hardwareCost=\(session.hardwareCost)"
+        )
     }
 
     func toggleRecording(layout: CaptureLayoutContext, export: VideoExportConfiguration) {
@@ -294,6 +351,8 @@ final class CameraManager: NSObject {
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            // Ensure the unused camera stays off for solo takes (and both on for dual).
+            self.applyCameraPowerPolicyOnSessionQueue(for: layout.layout)
             VideoDebugLog.log("CameraManager sessionQueue: begin engine.startRecording")
             do {
                 try self.videoEngine.startRecording(layout: layout, export: export)
@@ -836,9 +895,42 @@ final class CameraManager: NSObject {
             }
         }
 
+        guard let layout = activeLayoutContext else { return }
+
+        if layout.layout.usesSingleCamera {
+            let neededImage: UIImage?
+            switch layout.layout {
+            case .backOnly:
+                neededImage = isPrimaryBack ? pendingPrimaryImage : pendingSecondaryImage
+            case .frontOnly:
+                neededImage = isPrimaryBack ? pendingSecondaryImage : pendingPrimaryImage
+            case .pip, .verticalSplit, .horizontalSplit:
+                neededImage = nil
+            }
+
+            guard let solo = neededImage else { return }
+
+            pendingPrimaryImage = nil
+            pendingSecondaryImage = nil
+            activeLayoutContext = nil
+            dualPhotoDelegates.removeAll()
+
+            let composed = DualImageCompositor.compose(
+                primary: solo,
+                secondary: solo,
+                context: layout
+            )
+
+            Task { @MainActor in
+                self.lastCapturedImage = composed
+                self.photoCaptureCount += 1
+                self.saveImageToPhotos(composed)
+            }
+            return
+        }
+
         guard let primary = pendingPrimaryImage,
-              let secondary = pendingSecondaryImage,
-              let layout = activeLayoutContext else { return }
+              let secondary = pendingSecondaryImage else { return }
 
         pendingPrimaryImage = nil
         pendingSecondaryImage = nil
