@@ -29,6 +29,8 @@ struct CameraView: View {
                     // layers are not destroyed when Floating panels / background toggles.
                     viewfinderSection()
 
+                    // Chrome owns TopBar / BottomBar (zoom+shutter). Teleprompter sits
+                    // in the middle slot between them so it never covers zoom controls.
                     chromeOverlay
 
                     if viewModel.showsCameraLoadingIndicator {
@@ -71,6 +73,9 @@ struct CameraView: View {
                 if isRecording {
                     viewModel.dismissOverlay()
                     viewModel.isTopBarCollapsed = false
+                    viewModel.handleTeleprompterRecordingStarted()
+                } else {
+                    viewModel.handleTeleprompterRecordingStopped()
                 }
             }
             .onChange(of: viewModel.photoCaptureCount) { _, count in
@@ -81,6 +86,9 @@ struct CameraView: View {
                 if !available {
                     viewModel.syncFlashHardware()
                 }
+            }
+            .fullScreenCover(isPresented: $viewModel.showTeleprompterEditor) {
+                TeleprompterEditorView(settings: viewModel.settings)
             }
             .onChange(of: viewModel.isSessionRunning) { _, running in
                 VideoDebugLog.log("UI isSessionRunning → \(running)")
@@ -130,8 +138,7 @@ struct CameraView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-            Spacer(minLength: 0)
-                .allowsHitTesting(false)
+            chromeMiddleSlot
 
             BottomBarView(viewModel: viewModel)
                 .cameraFloatingPanel()
@@ -153,8 +160,7 @@ struct CameraView: View {
                 )
                 .padding(.top, 0)
 
-            Spacer(minLength: 0)
-                .allowsHitTesting(false)
+            chromeMiddleSlot
 
             BottomBarView(viewModel: viewModel)
                 .background(
@@ -177,8 +183,7 @@ struct CameraView: View {
                 .background(Color.black)
                 .padding(.top, 0)
 
-            Spacer(minLength: 0)
-                .allowsHitTesting(false)
+            chromeMiddleSlot
 
             BottomBarView(viewModel: viewModel)
                 .frame(maxWidth: .infinity)
@@ -186,6 +191,20 @@ struct CameraView: View {
                 .padding(.bottom, 35)
         }
         .ignoresSafeArea(edges: .bottom)
+    }
+
+    /// Space between TopBar and BottomBar (zoom / shutter). Teleprompter fills it entirely.
+    @ViewBuilder
+    private var chromeMiddleSlot: some View {
+        if viewModel.settings.isTeleprompterActive {
+            teleprompterOverlay
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Spacer(minLength: 0)
+                .allowsHitTesting(false)
+        }
     }
 
     private var cameraLoadingOverlay: some View {
@@ -332,6 +351,23 @@ struct CameraView: View {
             .onEnded { _ in
                 overlayDragStart = nil
             }
+    }
+
+    // MARK: - Teleprompter
+
+    private var teleprompterOverlay: some View {
+        TeleprompterView(
+            text: viewModel.settings.teleprompterText,
+            speed: Bindable(viewModel.settings).teleprompterSpeed,
+            fontSize: viewModel.settings.teleprompterFontSize,
+            startDelaySeconds: viewModel.settings.teleprompterStartDelaySeconds,
+            isPlaying: Bindable(viewModel.settings).isTeleprompterScrolling,
+            onClose: {
+                viewModel.deactivateTeleprompter()
+            }
+        )
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.25), value: viewModel.settings.isTeleprompterActive)
     }
 
     private func clampOverlayOffset(_ offset: CGSize, in containerSize: CGSize) -> CGSize {

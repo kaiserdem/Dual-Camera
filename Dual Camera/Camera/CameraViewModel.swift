@@ -49,6 +49,7 @@ final class CameraViewModel {
     }
     var viewfinderSize: CGSize = .zero
     var showSettings = false
+    var showTeleprompterEditor = false
     /// While Settings is open, layout chrome reads this snapshot instead of live `settings`
     /// so toggles do not rebuild the camera preview under the navigation stack.
     private var frozenAppearance: (floatingChrome: Bool, fullBleedBackground: Bool)?
@@ -540,6 +541,52 @@ final class CameraViewModel {
     func openGallery() {
         guard let url = URL(string: "photos-redirect://") else { return }
         UIApplication.shared.open(url)
+    }
+
+    // MARK: - Teleprompter
+
+    /// Idle: open editor. Recording: toggle overlay + scroll without opening settings.
+    func handleTeleprompterButtonTap() {
+        if isRecording {
+            toggleTeleprompterOverlay()
+        } else {
+            showTeleprompterEditor = true
+        }
+    }
+
+    /// Show or hide the teleprompter overlay (used while recording).
+    func toggleTeleprompterOverlay() {
+        if settings.isTeleprompterActive {
+            deactivateTeleprompter()
+        } else {
+            activateTeleprompter(play: true)
+        }
+    }
+
+    /// Activate overlay; optionally begin scroll (after configured delay inside the view).
+    func activateTeleprompter(play: Bool) {
+        let hasText = !settings.teleprompterText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        guard hasText else { return }
+        settings.isTeleprompterActive = true
+        settings.isTeleprompterScrolling = play
+    }
+
+    func deactivateTeleprompter() {
+        settings.isTeleprompterActive = false
+        settings.isTeleprompterScrolling = false
+    }
+
+    /// Auto-start overlay when recording begins (if enabled and script exists).
+    func handleTeleprompterRecordingStarted() {
+        guard settings.teleprompterAutoStartWithRecording else { return }
+        activateTeleprompter(play: true)
+    }
+
+    /// Keep overlay visible; pause scroll when recording ends.
+    func handleTeleprompterRecordingStopped() {
+        settings.isTeleprompterScrolling = false
     }
 
     func increaseBorderWidth() {

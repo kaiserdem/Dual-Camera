@@ -142,6 +142,41 @@ Photo у Dashcam/Reaction лишається корисним (прев’ю к�
 
 ---
 
+## Концепція D — Teleprompter Mode
+
+**Позиція:** Dual Camera як головна диференціація; суфлер — додатковий signature mode поверх dual.
+
+Use-case: контент-мейкер/блогер читає скрипт, фронталка знімає обличчя, задня — фон/студію, все в одному dual-composite кадрі.
+
+### Кандидати в беклог
+
+- [ ] Текстовий редактор (SwiftUI TextEditor) для введення/вставки скрипту
+- [ ] Live scroll overlay поверх viewfinder (SwiftUI, не bake під час запису)
+- [ ] Контроль швидкості скролінгу (повзунок або авто)
+- [ ] Mirror режим тексту (відзеркалення для читання через скло/рефлектор)
+- [ ] Опціонально: bake тексту суфлера в фінальний файл (через DualFrameCompositor)
+
+### Paywall-кандидати (пізніше)
+
+- Custom fonts / стилі тексту
+- Bake субтитрів суфлера у файл
+- Remote control (Apple Watch / другий девайс)
+
+### Рішення щодо single-cam
+
+- Solo-режим (одна камера) — **відкладаємо**. Dual залишається обов'язковим для диференціації.
+- Технічно single-cam реалізовується (~4–8 год, середня складність), але не є пріоритетом v1.
+- AVCaptureMultiCamSession нормально стартує з одним input'ом — блокувань немає, але DualVideoRecorder і DualFrameCompositor потребують змін (isSingleCam прапорець, optional secondary buffer).
+- Повернемось до solo-режиму після MVP суфлера якщо буде попит.
+
+### Ризики
+
+- UX: екран зайнятий текстом + dual preview — потрібен баланс розміру тексту і viewfinder
+- Mirror режим: не плутати з flip камери
+- Конкуренти (Teleprompter+) можуть додати dual — наша перевага у вже готовому dual composite
+
+---
+
 ## StoreKit 2 / монетизація (окремий етап)
 
 - [ ] Free: Custom Dual core (поточний dual capture)
@@ -210,6 +245,16 @@ Photo у Dashcam/Reaction лишається корисним (прев’ю к�
 | P3.3 | Optional G-force from `MotionManager` | idea |
 | P3.4 | Units + stamp style Settings | idea |
 
+### P-Tel — Teleprompter Mode v1
+
+| ID | Пункт | Status |
+|----|-------|--------|
+| PTel.1 | Spec: `product/teleprompter_mode.md` перед кодом | idea |
+| PTel.2 | SwiftUI TextEditor для скрипту + persistence | idea |
+| PTel.3 | Live scroll overlay поверх viewfinder (SwiftUI) | idea |
+| PTel.4 | Контроль швидкості + mirror режим | idea |
+| PTel.5 | UX: позиція тексту відносно dual preview | idea |
+
 ### P4 — Monetization
 
 | ID | Пункт | Status |
@@ -262,3 +307,5 @@ Photo у Dashcam/Reaction лишається корисним (прев’ю к�
 | 2026-08-21 | Документ створено. Реалізацію режимів **ще не затверджено**. Порада прийнята як стратегічний backlog з адаптацією Capture≠Product Mode. |
 | 2026-08-21 | Додано **Auto Captions (субтитри)** як Концепція C / етап **P5** (Pro-кандидат; після burn-in overlays, не v1). |
 | 2026-09-03 | Fit переозначено як WYSIWYG: aspect-fill без letterbox, export = пропорція viewfinder; PiP позиція збігається з екраном. |
+| 2026-09-03 | Додано Концепція D — Teleprompter Mode як новий signature mode поверх dual composite. Dual camera залишається обов'язковою диференціацією; solo single-cam режим відкладено. |
+| 2026-09-03 | Технічний аналіз single-cam: складність середня (~4–8 год), AVCaptureMultiCamSession нормально стартує з одним input'ом, але DualVideoRecorder блокує запис без secondary буфера. Відкладено після MVP суфлера. |

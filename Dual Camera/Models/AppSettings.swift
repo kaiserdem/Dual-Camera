@@ -11,6 +11,11 @@ import SwiftUI
 final class AppSettings {
     private enum Keys {
         static let layout = "settings.layout"
+        static let teleprompterText = "settings.teleprompterText"
+        static let teleprompterSpeed = "settings.teleprompterSpeed"
+        static let teleprompterFontSize = "settings.teleprompterFontSize"
+        static let teleprompterAutoStartWithRecording = "settings.teleprompterAutoStartWithRecording"
+        static let teleprompterStartDelaySeconds = "settings.teleprompterStartDelaySeconds"
         static let pipShape = "settings.pipShape"
         static let pipRounded = "settings.pipRounded"
         static let pipScale = "settings.pipScale"
@@ -110,6 +115,49 @@ final class AppSettings {
         didSet { persist(flashMode.rawValue, key: Keys.flashMode) }
     }
 
+    // MARK: - Teleprompter
+
+    /// Script text displayed in the teleprompter overlay.
+    var teleprompterText: String = "" {
+        didSet { persist(teleprompterText, key: Keys.teleprompterText) }
+    }
+
+    /// Scroll speed multiplier for the teleprompter (0.2 … 3.0).
+    var teleprompterSpeed: Double = 1.0 {
+        didSet { persist(teleprompterSpeed, key: Keys.teleprompterSpeed) }
+    }
+
+    /// Overlay font size in points (12 … 48). Default matches previous hardcoded size.
+    var teleprompterFontSize: Double = 28 {
+        didSet { persist(teleprompterFontSize, key: Keys.teleprompterFontSize) }
+    }
+
+    /// When true, starting a video recording activates the teleprompter (if script text exists).
+    var teleprompterAutoStartWithRecording: Bool = false {
+        didSet { persist(teleprompterAutoStartWithRecording, key: Keys.teleprompterAutoStartWithRecording) }
+    }
+
+    /// Seconds to wait before scrolling begins after activation (0 / 3 / 5 / 10).
+    var teleprompterStartDelaySeconds: Int = 0 {
+        didSet {
+            let clamped = Self.clampedTeleprompterStartDelay(teleprompterStartDelaySeconds)
+            if clamped != teleprompterStartDelaySeconds {
+                teleprompterStartDelaySeconds = clamped
+                return
+            }
+            persist(teleprompterStartDelaySeconds, key: Keys.teleprompterStartDelaySeconds)
+        }
+    }
+
+    /// Allowed countdown presets for teleprompter start delay.
+    static let teleprompterDelayOptions: [Int] = [0, 3, 5, 10]
+
+    /// Runtime-only flag — not persisted.
+    var isTeleprompterActive: Bool = false
+
+    /// Runtime-only: whether the overlay should scroll (after optional countdown).
+    var isTeleprompterScrolling: Bool = false
+
     var videoExportConfiguration: VideoExportConfiguration {
         VideoExportConfiguration(
             codec: videoCodec,
@@ -163,6 +211,16 @@ final class AppSettings {
         isFloatingCameraChromeEnabled = defaults.object(forKey: Keys.floatingCameraChrome) as? Bool ?? true
         isFullBleedCameraBackgroundEnabled = defaults.object(forKey: Keys.fullBleedCameraBackground) as? Bool ?? true
         flashMode = FlashModeOption(rawValue: defaults.string(forKey: Keys.flashMode) ?? "") ?? .off
+        teleprompterText = defaults.string(forKey: Keys.teleprompterText) ?? ""
+        teleprompterSpeed = defaults.object(forKey: Keys.teleprompterSpeed) as? Double ?? 1.0
+        teleprompterFontSize = Self.clampedTeleprompterFontSize(
+            defaults.object(forKey: Keys.teleprompterFontSize) as? Double ?? 28
+        )
+        teleprompterAutoStartWithRecording =
+            defaults.object(forKey: Keys.teleprompterAutoStartWithRecording) as? Bool ?? false
+        teleprompterStartDelaySeconds = Self.clampedTeleprompterStartDelay(
+            defaults.object(forKey: Keys.teleprompterStartDelaySeconds) as? Int ?? 0
+        )
     }
 
     func applyBorderPreset(_ style: BorderStyle) {
@@ -176,6 +234,15 @@ final class AppSettings {
 
     static func clampedPipScale(_ value: Double) -> CGFloat {
         CGFloat(min(max(value, 0.18), 0.45))
+    }
+
+    static func clampedTeleprompterFontSize(_ value: Double) -> Double {
+        min(max(value, 12), 48)
+    }
+
+    static func clampedTeleprompterStartDelay(_ value: Int) -> Int {
+        if teleprompterDelayOptions.contains(value) { return value }
+        return teleprompterDelayOptions.min(by: { abs($0 - value) < abs($1 - value) }) ?? 0
     }
 
     /// Maps legacy `roundedSquare` to square + rounded switch.

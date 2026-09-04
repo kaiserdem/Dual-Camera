@@ -5,6 +5,7 @@
 | Doc | Path | Status |
 |-----|------|--------|
 | Differentiation Roadmap (Reaction + Dashcam + Pro) | [docs/product_differentiation_roadmap.md](docs/product_differentiation_roadmap.md) | Proposal |
+| Teleprompter Mode | [specs/product/teleprompter_mode.md](specs/product/teleprompter_mode.md) | In progress |
 
 ## Camera
 

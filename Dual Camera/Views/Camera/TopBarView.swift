@@ -126,6 +126,31 @@ private struct IdleTopBarView: View {
             )
 
             Button {
+                viewModel.handleTeleprompterButtonTap()
+            } label: {
+                Image(systemName: viewModel.settings.isTeleprompterActive ? "text.alignleft" : "doc.text")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(viewModel.settings.isTeleprompterActive ? .yellow : .white)
+                    .frame(width: controlHeight, height: controlHeight)
+                    .background(
+                        Circle()
+                            .fill(
+                                viewModel.settings.isTeleprompterActive
+                                    ? Color.yellow.opacity(0.22)
+                                    : Color.white.opacity(0.12)
+                            )
+                    )
+                    .overlay {
+                        if viewModel.settings.isTeleprompterActive {
+                            Circle()
+                                .stroke(Color.yellow.opacity(0.75), lineWidth: 1.5)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(viewModel.settings.isTeleprompterActive ? "Teleprompter active" : "Open teleprompter")
+
+            Button {
                 viewModel.showSettings = true
             } label: {
                 Image(systemName: "gearshape")
@@ -174,8 +199,13 @@ private struct IdleTopBarView: View {
 private struct RecordingTopBarView: View {
     @Bindable var viewModel: CameraViewModel
 
+    private let controlHeight: CGFloat = 40
+
     var body: some View {
         HStack {
+            Color.clear
+                .frame(width: controlHeight, height: controlHeight)
+
             Spacer(minLength: 0)
 
             HStack(spacing: 8) {
@@ -197,6 +227,35 @@ private struct RecordingTopBarView: View {
             )
 
             Spacer(minLength: 0)
+
+            Button {
+                viewModel.handleTeleprompterButtonTap()
+            } label: {
+                Image(systemName: viewModel.settings.isTeleprompterActive ? "text.alignleft" : "doc.text")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(viewModel.settings.isTeleprompterActive ? .yellow : .white)
+                    .frame(width: controlHeight, height: controlHeight)
+                    .background(
+                        Circle()
+                            .fill(
+                                viewModel.settings.isTeleprompterActive
+                                    ? Color.yellow.opacity(0.22)
+                                    : Color.white.opacity(0.12)
+                            )
+                    )
+                    .overlay {
+                        if viewModel.settings.isTeleprompterActive {
+                            Circle()
+                                .stroke(Color.yellow.opacity(0.75), lineWidth: 1.5)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                viewModel.settings.isTeleprompterActive
+                    ? "Hide teleprompter"
+                    : "Show teleprompter"
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
