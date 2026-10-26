@@ -100,24 +100,7 @@ struct PiPWindowView: View {
 
     @ViewBuilder
     private var pipContent: some View {
-        if viewModel.isSessionRunning, let port = viewModel.secondaryPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port)
-                .id("pip-\(ObjectIdentifier(port))")
-        } else {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [.orange.opacity(0.8), .pink.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay {
-                    Image(systemName: "person.crop.square")
-                        .font(.title2)
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-        }
+        CameraPreviewSource.layer(viewModel: viewModel, role: .secondary)
     }
 
     @ViewBuilder

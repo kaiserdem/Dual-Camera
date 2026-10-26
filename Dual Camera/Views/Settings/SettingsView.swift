@@ -39,6 +39,8 @@ struct SettingsView: View {
 
                         videoExportCard
 
+                        DeveloperSettingsCard(settings: settings)
+
                         actionsCard
 
                         aboutCard

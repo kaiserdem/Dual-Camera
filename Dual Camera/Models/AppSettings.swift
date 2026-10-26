@@ -6,6 +6,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
 
 @Observable
 final class AppSettings {
@@ -33,6 +34,8 @@ final class AppSettings {
         static let floatingCameraChrome = "settings.floatingCameraChrome"
         static let fullBleedCameraBackground = "settings.fullBleedCameraBackground"
         static let flashMode = "settings.flashMode"
+        static let developerModeEnabled = "settings.developerModeEnabled"
+        static let developerScreenshotMode = "settings.developerScreenshotMode"
     }
 
     var selectedLayout: CameraLayout = .pip {
@@ -158,6 +161,50 @@ final class AppSettings {
     /// Runtime-only: whether the overlay should scroll (after optional countdown).
     var isTeleprompterScrolling: Bool = false
 
+    // MARK: - Developer (screenshot staging; hide before App Store release)
+
+    /// Unlocks developer-only settings in the app.
+    var isDeveloperModeEnabled: Bool = false {
+        didSet { persist(isDeveloperModeEnabled, key: Keys.developerModeEnabled) }
+    }
+
+    /// Replaces live camera previews with gallery stills (back + front slots).
+    var isDeveloperScreenshotModeEnabled: Bool = false {
+        didSet { persist(isDeveloperScreenshotModeEnabled, key: Keys.developerScreenshotMode) }
+    }
+
+    private(set) var developerMockBackImage: UIImage?
+    private(set) var developerMockFrontImage: UIImage?
+
+    var hasDeveloperScreenshotMocks: Bool {
+        developerMockBackImage != nil && developerMockFrontImage != nil
+    }
+
+    func reloadDeveloperMockImages() {
+        developerMockBackImage = DeveloperScreenshotStore.loadBackImage()
+        developerMockFrontImage = DeveloperScreenshotStore.loadFrontImage()
+    }
+
+    func setDeveloperMockBackImage(_ image: UIImage) {
+        DeveloperScreenshotStore.saveBackImage(image)
+        developerMockBackImage = image
+    }
+
+    func setDeveloperMockFrontImage(_ image: UIImage) {
+        DeveloperScreenshotStore.saveFrontImage(image)
+        developerMockFrontImage = image
+    }
+
+    func clearDeveloperMockBackImage() {
+        DeveloperScreenshotStore.clearBackImage()
+        developerMockBackImage = nil
+    }
+
+    func clearDeveloperMockFrontImage() {
+        DeveloperScreenshotStore.clearFrontImage()
+        developerMockFrontImage = nil
+    }
+
     var videoExportConfiguration: VideoExportConfiguration {
         VideoExportConfiguration(
             codec: videoCodec,
@@ -221,6 +268,10 @@ final class AppSettings {
         teleprompterStartDelaySeconds = Self.clampedTeleprompterStartDelay(
             defaults.object(forKey: Keys.teleprompterStartDelaySeconds) as? Int ?? 0
         )
+        isDeveloperModeEnabled = defaults.object(forKey: Keys.developerModeEnabled) as? Bool ?? false
+        isDeveloperScreenshotModeEnabled =
+            defaults.object(forKey: Keys.developerScreenshotMode) as? Bool ?? false
+        reloadDeveloperMockImages()
     }
 
     func applyBorderPreset(_ style: BorderStyle) {

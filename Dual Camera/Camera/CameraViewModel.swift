@@ -265,6 +265,7 @@ final class CameraViewModel {
     }
     var primaryPort: AVCaptureInput.Port? { cameraManager.primaryVideoPort }
     var secondaryPort: AVCaptureInput.Port? { cameraManager.secondaryVideoPort }
+    var isPrimaryBack: Bool { cameraManager.isPrimaryBack }
     var backPort: AVCaptureInput.Port? { cameraManager.backVideoPort }
     var frontPort: AVCaptureInput.Port? { cameraManager.frontVideoPort }
     var session: AVCaptureMultiCamSession { cameraManager.session }

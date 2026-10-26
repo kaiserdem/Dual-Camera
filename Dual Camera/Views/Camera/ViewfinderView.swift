@@ -210,53 +210,21 @@ struct ViewfinderView: View {
 
     @ViewBuilder
     private var primaryPreview: some View {
-        if viewModel.isSessionRunning, let port = viewModel.primaryPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
-                .id("primary-\(ObjectIdentifier(port))")
-        } else {
-            placeholder(colors: [.blue.opacity(0.75), .purple.opacity(0.65)], symbol: "camera.fill")
-        }
+        CameraPreviewSource.layer(viewModel: viewModel, role: .primary, videoGravity: previewGravity)
     }
 
     @ViewBuilder
     private var secondaryPreview: some View {
-        if viewModel.isSessionRunning, let port = viewModel.secondaryPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
-                .id("secondary-\(ObjectIdentifier(port))")
-        } else {
-            placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.square")
-        }
+        CameraPreviewSource.layer(viewModel: viewModel, role: .secondary, videoGravity: previewGravity)
     }
 
     @ViewBuilder
     private var backPreview: some View {
-        if viewModel.isSessionRunning, let port = viewModel.backPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
-                .id("back-\(ObjectIdentifier(port))")
-        } else {
-            placeholder(colors: [.blue.opacity(0.75), .purple.opacity(0.65)], symbol: "camera.fill")
-        }
+        CameraPreviewSource.layer(viewModel: viewModel, role: .back, videoGravity: previewGravity)
     }
 
     @ViewBuilder
     private var frontPreview: some View {
-        if viewModel.isSessionRunning, let port = viewModel.frontPort {
-            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: previewGravity)
-                .id("front-\(ObjectIdentifier(port))")
-        } else {
-            placeholder(colors: [.orange.opacity(0.8), .pink.opacity(0.7)], symbol: "person.crop.circle")
-        }
-    }
-
-    private func placeholder(colors: [Color], symbol: String) -> some View {
-        Rectangle()
-            .fill(
-                LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
-            .overlay {
-                Image(systemName: symbol)
-                    .font(.largeTitle)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
+        CameraPreviewSource.layer(viewModel: viewModel, role: .front, videoGravity: previewGravity)
     }
 }

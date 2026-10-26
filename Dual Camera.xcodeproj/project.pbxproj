@@ -261,6 +261,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "DuoPrompter needs camera access to show front and back camera previews and capture photos and videos.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DuoPrompter needs microphone access to record audio with videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "DuoPrompter needs permission to save photos and videos to your library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "DuoPrompter needs photo library access to pick images for developer screenshot previews.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -302,6 +303,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "DuoPrompter needs camera access to show front and back camera previews and capture photos and videos.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DuoPrompter needs microphone access to record audio with videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "DuoPrompter needs permission to save photos and videos to your library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "DuoPrompter needs photo library access to pick images for developer screenshot previews.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
