@@ -54,6 +54,9 @@ final class CameraManager: NSObject {
     /// Last zoom level requested from UI; applied after configure and on each setZoom.
     private var pendingZoomLevel: ZoomLevel = .one
 
+    /// Set on `sessionQueue` after a successful `configureSession()` — avoids double-config races.
+    private var sessionHasBeenConfigured = false
+
     private var dualPhotoDelegates: [PhotoCaptureDelegate] = []
     private var activeLayoutContext: CaptureLayoutContext?
     private var pendingPrimaryImage: UIImage?
@@ -419,8 +422,9 @@ final class CameraManager: NSObject {
                 "hardwareRunning=\(self.session.isRunning)"
             )
             do {
-                if !self.isConfigured {
+                if !self.sessionHasBeenConfigured {
                     try self.configureSession()
+                    self.sessionHasBeenConfigured = true
                 }
                 if !self.session.isRunning {
                     VideoDebugLog.log("configureAndStart → session.startRunning()")
@@ -446,6 +450,10 @@ final class CameraManager: NSObject {
     private func configureSession() throws {
         guard MultiCamSupport.isSupported else {
             throw CameraError.multiCamUnsupported
+        }
+        if backCameraInput != nil, frontCameraInput != nil {
+            VideoDebugLog.log("configureSession skipped — inputs already wired")
+            return
         }
 
         session.beginConfiguration()
@@ -807,14 +815,20 @@ final class CameraManager: NSObject {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
-        if let current = backCameraInput {
+        let previousInput = backCameraInput
+        let previousPort = backVideoPort
+        if let current = previousInput {
             session.removeInput(current)
         }
 
         do {
             try configureMultiCamFormat(for: device, preferLowerCost: false)
             let newInput = try AVCaptureDeviceInput(device: device)
-            guard session.canAddInput(newInput) else { return }
+            guard session.canAddInput(newInput) else {
+                restoreBackInput(previousInput, port: previousPort)
+                reportCannotAddBackInput()
+                return
+            }
             session.addInputWithNoConnections(newInput)
             backCameraInput = newInput
             if device.deviceType == .builtInWideAngleCamera {
@@ -825,7 +839,11 @@ final class CameraManager: NSObject {
                 for: .video,
                 sourceDeviceType: device.deviceType,
                 sourceDevicePosition: device.position
-            ).first else { return }
+            ).first else {
+                restoreBackInput(previousInput, port: previousPort)
+                reportCannotAddBackInput()
+                return
+            }
             backVideoPort = port
 
             reconnectOutputs(to: port)
@@ -834,9 +852,31 @@ final class CameraManager: NSObject {
             applyZoom(on: device, factor: max(preferredZoom, 1.0), animated: false)
             refreshLightCapabilities()
         } catch {
+            restoreBackInput(previousInput, port: previousPort)
             Task { @MainActor in
                 self.errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func restoreBackInput(_ input: AVCaptureDeviceInput?, port: AVCaptureInput.Port?) {
+        guard let input else { return }
+        if session.canAddInput(input) {
+            session.addInputWithNoConnections(input)
+            backCameraInput = input
+            if let port {
+                backVideoPort = port
+                reconnectOutputs(to: port)
+            }
+        } else {
+            VideoDebugLog.log("ERROR restoreBackInput failed — back camera may be offline")
+        }
+    }
+
+    private func reportCannotAddBackInput() {
+        VideoDebugLog.log("ERROR switchBackCamera cannotAddInput")
+        Task { @MainActor in
+            self.errorMessage = CameraError.cannotAddInput.localizedDescription
         }
     }
 
