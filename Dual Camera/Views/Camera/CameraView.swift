@@ -161,15 +161,13 @@ struct CameraView: View {
 
             chromeMiddleSlot
 
-            BottomBarView(viewModel: viewModel)
-                .background(
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.7)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+            classicBottomBarChrome {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.7)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .padding(.bottom, 35)
+            }
         }
         .ignoresSafeArea(edges: .bottom)
     }
@@ -184,12 +182,26 @@ struct CameraView: View {
 
             chromeMiddleSlot
 
-            BottomBarView(viewModel: viewModel)
-                .frame(maxWidth: .infinity)
-                .background(Color.black)
-                .padding(.bottom, 35)
+            classicBottomBarChrome {
+                Color.black
+            }
         }
         .ignoresSafeArea(edges: .bottom)
+    }
+
+    /// Bottom controls with chrome that extends to the physical screen edge (no preview leak).
+    private func classicBottomBarChrome<Background: View>(
+        @ViewBuilder background: () -> Background
+    ) -> some View {
+        BottomBarView(viewModel: viewModel)
+            .frame(maxWidth: .infinity)
+            .safeAreaPadding(.bottom, 50)
+            .background(alignment: .bottom) {
+                background()
+                    .frame(minHeight: 220)
+                    .frame(maxWidth: .infinity)
+                    .ignoresSafeArea(edges: .bottom)
+            }
     }
 
     /// Space between TopBar and BottomBar (zoom / shutter). Teleprompter fills it entirely.

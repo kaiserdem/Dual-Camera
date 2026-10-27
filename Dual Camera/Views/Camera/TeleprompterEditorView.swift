@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// Full-screen editor for composing and configuring the teleprompter script.
 struct TeleprompterEditorView: View {
@@ -90,8 +91,7 @@ struct TeleprompterEditorView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            TextEditor(text: $draftText)
-                .font(.system(size: 16))
+            TeleprompterScriptTextEditor(text: $draftText)
                 .frame(minHeight: 180)
                 .padding(10)
                 .background(
@@ -284,4 +284,58 @@ struct TeleprompterEditorView: View {
 
 #Preview {
     TeleprompterEditorView(settings: AppSettings())
+}
+
+// MARK: - Script editor (Return / Done dismisses keyboard)
+
+private struct TeleprompterScriptTextEditor: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.font = .systemFont(ofSize: 16)
+        textView.backgroundColor = .clear
+        textView.textColor = .label
+        textView.keyboardAppearance = .dark
+        textView.returnKeyType = .done
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.text = text
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if textView.text != text {
+            textView.text = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText replacement: String
+        ) -> Bool {
+            if replacement == "\n" {
+                textView.resignFirstResponder()
+                return false
+            }
+            return true
+        }
+    }
 }
