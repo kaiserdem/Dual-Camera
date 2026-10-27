@@ -18,7 +18,7 @@ enum DualCameraLegal {
     static let contactURL = URL(string: "mailto:\(supportEmail)")!
 
     /// Set after App Store Connect creates the app record (e.g. `"1234567890"`).
-    static let appStoreID: String? = nil
+    static let appStoreID: String? = "6809437163"
 
     static var rateURL: URL? {
         guard let appStoreID else { return nil }

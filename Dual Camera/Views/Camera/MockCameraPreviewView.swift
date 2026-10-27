@@ -3,6 +3,8 @@
 //  Dual Camera
 //
 
+#if DEBUG
+
 import SwiftUI
 
 /// Still image stand-in for a live camera preview (developer screenshot mode).
@@ -20,3 +22,5 @@ struct MockCameraPreviewView: View {
             .accessibilityLabel("Mock camera preview")
     }
 }
+
+#endif

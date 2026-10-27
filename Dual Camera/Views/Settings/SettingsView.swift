@@ -39,7 +39,9 @@ struct SettingsView: View {
 
                         videoExportCard
 
+#if DEBUG
                         DeveloperSettingsCard(settings: settings)
+#endif
 
                         actionsCard
 

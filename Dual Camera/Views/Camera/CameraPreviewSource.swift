@@ -5,6 +5,9 @@
 
 import AVFoundation
 import SwiftUI
+#if DEBUG
+import UIKit
+#endif
 
 /// Chooses live `CameraPreviewView` or a gallery still when developer screenshot mode is on.
 enum CameraPreviewSource {
@@ -14,6 +17,7 @@ enum CameraPreviewSource {
         role: MockCameraRole,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill
     ) -> some View {
+#if DEBUG
         if let mock = mockImage(viewModel: viewModel, role: role) {
             MockCameraPreviewView(image: mock.image, mirrored: mock.mirrored)
         } else if viewModel.isSessionRunning, let port = livePort(viewModel: viewModel, role: role) {
@@ -22,8 +26,17 @@ enum CameraPreviewSource {
         } else {
             CameraPreviewPlaceholder(role: role)
         }
+#else
+        if viewModel.isSessionRunning, let port = livePort(viewModel: viewModel, role: role) {
+            CameraPreviewView(session: viewModel.session, inputPort: port, videoGravity: videoGravity)
+                .id("\(role)-\(ObjectIdentifier(port))")
+        } else {
+            CameraPreviewPlaceholder(role: role)
+        }
+#endif
     }
 
+#if DEBUG
     private static func mockImage(viewModel: CameraViewModel, role: MockCameraRole) -> (image: UIImage, mirrored: Bool)? {
         guard viewModel.settings.isDeveloperScreenshotModeEnabled else { return nil }
         switch physicalCamera(viewModel: viewModel, role: role) {
@@ -35,6 +48,7 @@ enum CameraPreviewSource {
             return (image, true)
         }
     }
+#endif
 
     private static func livePort(viewModel: CameraViewModel, role: MockCameraRole) -> AVCaptureInput.Port? {
         switch physicalCamera(viewModel: viewModel, role: role) {

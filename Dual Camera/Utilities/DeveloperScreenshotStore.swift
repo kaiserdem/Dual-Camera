@@ -3,6 +3,8 @@
 //  Dual Camera
 //
 
+#if DEBUG
+
 import UIKit
 
 /// Persists mock camera stills for App Store screenshot staging (developer mode).
@@ -61,3 +63,5 @@ enum DeveloperScreenshotStore {
         try? FileManager.default.removeItem(at: url)
     }
 }
+
+#endif

@@ -3,6 +3,8 @@
 //  Dual Camera
 //
 
+#if DEBUG
+
 import PhotosUI
 import SwiftUI
 
@@ -217,3 +219,5 @@ struct DeveloperSettingsCard: View {
         }
     }
 }
+
+#endif
